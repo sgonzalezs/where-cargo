@@ -8,6 +8,7 @@ import '../../../charging_stations/domain/models/charging_station.dart';
 import '../../../charging_stations/data/repositories/charging_stations_repository.dart';
 import '../../../charging_stations/presentation/pages/station_detail_page.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../widgets/marker_generator.dart';
 
 /// Página del mapa con estaciones de carga
 class MapPage extends StatefulWidget {
@@ -135,9 +136,12 @@ class _MapPageState extends State<MapPage> {
       );
       
       if (mounted) {
+        // Crear marcadores personalizados de forma asíncrona
+        final markers = await _createMarkersAsync(stations);
+        
         setState(() {
           _stations = stations;
-          _markers = _createMarkers(stations);
+          _markers = markers;
           _isLoading = false;
         });
         
@@ -171,10 +175,34 @@ class _MapPageState extends State<MapPage> {
   /// Recarga las estaciones
   Future<void> _refreshStations() async {
     _repository.clearCache();
+    MarkerGenerator.clearCache();
     await _loadStations();
   }
 
-  /// Crea los marcadores para el mapa
+  /// Crea los marcadores personalizados para el mapa (asíncrono)
+  Future<Set<Marker>> _createMarkersAsync(List<ChargingStation> stations) async {
+    final markers = <Marker>{};
+    
+    for (final station in stations) {
+      final icon = await MarkerGenerator.generateStationMarker(station);
+      
+      markers.add(Marker(
+        markerId: MarkerId(station.id),
+        position: LatLng(station.latitude, station.longitude),
+        icon: icon,
+        anchor: const Offset(0.5, 1.0),
+        infoWindow: InfoWindow(
+          title: station.name,
+          snippet: '${station.availabilityText} • ${station.maxPowerKw.toInt()} kW',
+        ),
+        onTap: () => _selectStation(station),
+      ));
+    }
+    
+    return markers;
+  }
+
+  /// Crea los marcadores para el mapa (versión simple de respaldo)
   Set<Marker> _createMarkers(List<ChargingStation> stations) {
     return stations.map((station) {
       return Marker(
