@@ -6,6 +6,7 @@ import '../../data/repositories/charging_stations_repository.dart';
 import '../widgets/station_card.dart';
 import 'station_detail_page.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/location_service.dart';
 
 /// Página con lista de estaciones de carga
 class StationsListPage extends StatefulWidget {
@@ -18,6 +19,7 @@ class StationsListPage extends StatefulWidget {
 class _StationsListPageState extends State<StationsListPage> {
   final TextEditingController _searchController = TextEditingController();
   final ChargingStationsRepository _repository = ChargingStationsRepository();
+  final LocationService _locationService = LocationService();
   
   bool _isLoading = false;
   List<ChargingStation> _allStations = [];
@@ -33,14 +35,42 @@ class _StationsListPageState extends State<StationsListPage> {
   @override
   void initState() {
     super.initState();
+    _locationService.addListener(_onLocationChanged);
     _loadStations();
   }
 
   @override
   void dispose() {
+    _locationService.removeListener(_onLocationChanged);
     _searchController.dispose();
     _repository.dispose();
     super.dispose();
+  }
+
+  void _onLocationChanged() {
+    // Cuando la ubicación cambia (por ejemplo desde el mapa), recargar
+    if (mounted) {
+      _recalculateDistancesAndReload();
+    }
+  }
+
+  Future<void> _recalculateDistancesAndReload() async {
+    final lat = _locationService.latitude;
+    final lng = _locationService.longitude;
+    
+    if (_allStations.isNotEmpty) {
+      final updatedStations = _repository.recalculateDistancesFrom(
+        stations: _allStations,
+        latitude: lat,
+        longitude: lng,
+      );
+      setState(() {
+        _allStations = updatedStations;
+        _applyFilters();
+      });
+    } else {
+      await _loadStations();
+    }
   }
 
   Future<void> _loadStations() async {
@@ -50,10 +80,12 @@ class _StationsListPageState extends State<StationsListPage> {
     });
 
     try {
-      // Cargar estaciones desde Open Charge Map - Medellín
+      final lat = _locationService.latitude;
+      final lng = _locationService.longitude;
+      
       final stations = await _repository.getNearbyStations(
-        latitude: 6.2442,
-        longitude: -75.5812,
+        latitude: lat,
+        longitude: lng,
         radiusKm: 30,
       );
       
@@ -126,12 +158,85 @@ class _StationsListPageState extends State<StationsListPage> {
       ),
       body: Column(
         children: [
+          _buildLocationBar(),
           _buildSearchBar(),
           _buildActiveFiltersChips(),
           Expanded(
             child: _buildContent(),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLocationBar() {
+    final isLocating = _locationService.isLocating;
+    final locationLabel = _locationService.locationLabel;
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: AppColors.primary.withAlpha(15),
+      child: Row(
+        children: [
+          Icon(
+            Icons.location_on,
+            size: 18,
+            color: isLocating ? AppColors.textSecondary : AppColors.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: isLocating
+                ? const Row(
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Obteniendo ubicación...',
+                        style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                      ),
+                    ],
+                  )
+                : Text(
+                    locationLabel,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+          ),
+          TextButton.icon(
+            onPressed: isLocating ? null : _showLocationOptions,
+            icon: const Icon(Icons.edit_location_alt, size: 18),
+            label: const Text('Cambiar'),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              visualDensity: VisualDensity.compact,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLocationOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => _LocationOptionsSheet(
+        onUseCurrentLocation: () async {
+          Navigator.pop(context);
+          await _locationService.getCurrentLocation();
+        },
+        onSelectCity: (city, lat, lng) {
+          Navigator.pop(context);
+          _locationService.setCity(city, lat, lng);
+        },
       ),
     );
   }
@@ -611,6 +716,114 @@ class _FiltersSheetState extends State<_FiltersSheet> {
                 widget.onApply(_chargingTypes, _minSpeed, _onlyAvailable, _onlyFree);
               },
               child: const Text('Aplicar filtros'),
+            ),
+          ),
+          
+          SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bottom sheet para seleccionar ubicación
+class _LocationOptionsSheet extends StatelessWidget {
+  final VoidCallback onUseCurrentLocation;
+  final Function(String city, double lat, double lng) onSelectCity;
+
+  const _LocationOptionsSheet({
+    required this.onUseCurrentLocation,
+    required this.onSelectCity,
+  });
+
+  // Ciudades principales de Colombia con cargadores
+  static const List<Map<String, dynamic>> _cities = [
+    {'name': 'Medellín', 'lat': 6.2442, 'lng': -75.5812},
+    {'name': 'Bogotá', 'lat': 4.6097, 'lng': -74.0817},
+    {'name': 'Cali', 'lat': 3.4516, 'lng': -76.5320},
+    {'name': 'Barranquilla', 'lat': 10.9685, 'lng': -74.7813},
+    {'name': 'Cartagena', 'lat': 10.3910, 'lng': -75.4794},
+    {'name': 'Bucaramanga', 'lat': 7.1254, 'lng': -73.1198},
+    {'name': 'Pereira', 'lat': 4.8087, 'lng': -75.6906},
+    {'name': 'Santa Marta', 'lat': 11.2408, 'lng': -74.1990},
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          
+          // Header
+          Text(
+            'Seleccionar ubicación',
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Las estaciones se cargarán en un radio de 30km',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+          ),
+          const Divider(height: 24),
+          
+          // Usar ubicación actual
+          ListTile(
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withAlpha(25),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.my_location, color: AppColors.primary),
+            ),
+            title: const Text('Usar mi ubicación actual'),
+            subtitle: const Text('GPS del dispositivo'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onUseCurrentLocation,
+          ),
+          
+          const Divider(height: 24),
+          const Text(
+            'O selecciona una ciudad:',
+            style: TextStyle(fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(height: 8),
+          
+          // Lista de ciudades
+          SizedBox(
+            height: 200,
+            child: ListView.builder(
+              itemCount: _cities.length,
+              itemBuilder: (context, index) {
+                final city = _cities[index];
+                return ListTile(
+                  leading: const Icon(Icons.location_city, color: AppColors.textSecondary),
+                  title: Text(city['name'] as String),
+                  dense: true,
+                  onTap: () => onSelectCity(
+                    city['name'] as String,
+                    city['lat'] as double,
+                    city['lng'] as double,
+                  ),
+                );
+              },
             ),
           ),
           

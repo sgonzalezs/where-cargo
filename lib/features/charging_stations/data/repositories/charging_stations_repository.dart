@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../../domain/models/charging_station.dart';
 import '../../domain/enums/charging_enums.dart';
 import '../services/open_charge_map_service.dart';
@@ -25,14 +27,24 @@ class ChargingStationsRepository {
   /// Obtiene estaciones cercanas a una ubicación
   /// 
   /// Usa cache si la ubicación es similar y no ha expirado
+  /// Si forceRefresh es true, siempre recarga del API
+  /// Si recalculateDistances es true, recalcula las distancias con la nueva ubicación
   Future<List<ChargingStation>> getNearbyStations({
     required double latitude,
     required double longitude,
     double radiusKm = 50,
     bool forceRefresh = false,
   }) async {
-    // Verificar si podemos usar cache
+    // Verificar si la ubicación cambió significativamente
+    final locationChanged = !_isSameLocation(latitude, longitude);
+    
+    // Verificar si podemos usar cache (si la ubicación no cambió mucho y no expiró)
     if (!forceRefresh && _canUseCache(latitude, longitude)) {
+      // Si la ubicación cambió un poco pero tenemos cache válido,
+      // recalcular distancias con la nueva ubicación
+      if (locationChanged && _cachedStations != null) {
+        return _recalculateDistances(_cachedStations!, latitude, longitude);
+      }
       return _cachedStations!;
     }
 
@@ -216,6 +228,58 @@ class ChargingStationsRepository {
         .cast<String>()
         .toSet();
   }
+
+  /// Verifica si la ubicación es exactamente la misma
+  bool _isSameLocation(double latitude, double longitude) {
+    if (_lastLatitude == null || _lastLongitude == null) return false;
+    return latitude == _lastLatitude && longitude == _lastLongitude;
+  }
+
+  /// Recalcula las distancias de las estaciones desde una nueva ubicación
+  List<ChargingStation> _recalculateDistances(
+    List<ChargingStation> stations,
+    double userLat,
+    double userLng,
+  ) {
+    return stations.map((station) {
+      final newDistance = _calculateDistance(
+        userLat, userLng,
+        station.latitude, station.longitude,
+      );
+      return station.copyWith(distanceKm: newDistance);
+    }).toList()
+      ..sort((a, b) => 
+          (a.distanceKm ?? double.infinity)
+              .compareTo(b.distanceKm ?? double.infinity));
+  }
+
+  /// Recalcula distancias de estaciones existentes con nueva ubicación
+  /// Método público para recalcular desde fuera
+  List<ChargingStation> recalculateDistancesFrom({
+    required List<ChargingStation> stations,
+    required double latitude,
+    required double longitude,
+  }) {
+    return _recalculateDistances(stations, latitude, longitude);
+  }
+
+  /// Calcula distancia entre dos puntos usando Haversine
+  double _calculateDistance(double lat1, double lng1, double lat2, double lng2) {
+    const double earthRadius = 6371; // km
+    
+    final dLat = _toRadians(lat2 - lat1);
+    final dLng = _toRadians(lng2 - lng1);
+    
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRadians(lat1)) * math.cos(_toRadians(lat2)) *
+        math.sin(dLng / 2) * math.sin(dLng / 2);
+    
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    
+    return earthRadius * c;
+  }
+
+  double _toRadians(double degrees) => degrees * math.pi / 180;
 
   void dispose() {
     _ocmService.dispose();

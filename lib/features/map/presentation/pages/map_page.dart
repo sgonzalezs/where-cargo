@@ -1,13 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../charging_stations/domain/models/charging_station.dart';
 import '../../../charging_stations/data/repositories/charging_stations_repository.dart';
 import '../../../charging_stations/presentation/pages/station_detail_page.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/location_service.dart';
 import '../widgets/marker_generator.dart';
 
 /// Página del mapa con estaciones de carga
@@ -25,15 +26,16 @@ class _MapPageState extends State<MapPage> {
   // Repositorio de estaciones
   final ChargingStationsRepository _repository = ChargingStationsRepository();
   
+  // Servicio de ubicación compartido
+  final LocationService _locationService = LocationService();
+  
   // Estado
   bool _isLoading = true;
-  bool _isLocating = false;
   bool _isSelectingLocation = false;  // Modo de selección de ubicación
   String? _errorMessage;
   List<ChargingStation> _stations = [];
   ChargingStation? _selectedStation;
   Set<Marker> _markers = {};
-  Position? _currentPosition;
   LatLng? _userLocation;  // Ubicación seleccionada manualmente
   
   // Posición inicial: Medellín, Colombia
@@ -45,7 +47,27 @@ class _MapPageState extends State<MapPage> {
   @override
   void initState() {
     super.initState();
+    _locationService.addListener(_onLocationChanged);
     _initializeMap();
+  }
+
+  @override
+  void dispose() {
+    _locationService.removeListener(_onLocationChanged);
+    _repository.dispose();
+    super.dispose();
+  }
+
+  void _onLocationChanged() {
+    // Actualizar el marcador de ubicación cuando cambie
+    if (_locationService.hasCustomLocation) {
+      setState(() {
+        _userLocation = LatLng(
+          _locationService.latitude,
+          _locationService.longitude,
+        );
+      });
+    }
   }
 
   Future<void> _initializeMap() async {
@@ -54,63 +76,31 @@ class _MapPageState extends State<MapPage> {
     await _loadStations();
   }
 
-  /// Obtiene la ubicación actual del usuario
+  /// Obtiene la ubicación actual del usuario usando el servicio compartido
   Future<void> _getCurrentLocation() async {
-    setState(() => _isLocating = true);
+    final success = await _locationService.getCurrentLocation();
     
-    try {
-      // Verificar si el servicio de ubicación está habilitado
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _showLocationError('El servicio de ubicación está desactivado');
-        // Usar ubicación por defecto (Medellín)
-        return;
-      }
-
-      // Verificar permisos
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          _showLocationError('Permiso de ubicación denegado');
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        _showLocationError('Permiso de ubicación denegado permanentemente');
-        return;
-      }
-
-      // Obtener ubicación actual con timeout
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
-      );
-
-      if (mounted) {
-        setState(() {
-          _currentPosition = position;
-        });
-
-        // Mover cámara a la ubicación actual
-        final controller = await _mapController.future;
-        await controller.animateCamera(
-          CameraUpdate.newCameraPosition(
-            CameraPosition(
-              target: LatLng(position.latitude, position.longitude),
-              zoom: 14.0,
-            ),
-          ),
+    if (success && mounted) {
+      setState(() {
+        _userLocation = LatLng(
+          _locationService.latitude,
+          _locationService.longitude,
         );
-      }
-    } catch (e) {
-      debugPrint('Error obteniendo ubicación: $e');
-      // Se usará la ubicación por defecto
-    } finally {
-      if (mounted) {
-        setState(() => _isLocating = false);
-      }
+      });
+
+      // Mover cámara a la ubicación actual
+      final controller = await _mapController.future;
+      await controller.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: LatLng(_locationService.latitude, _locationService.longitude),
+            zoom: 14.0,
+          ),
+        ),
+      );
+    } else {
+      // Usar ubicación por defecto
+      _showLocationError('No se pudo obtener la ubicación');
     }
   }
 
@@ -136,13 +126,10 @@ class _MapPageState extends State<MapPage> {
     });
 
     try {
-      // Usar ubicación actual o Medellín como fallback
-      final double lat = _currentPosition?.latitude ?? 6.2442;
-      final double lng = _currentPosition?.longitude ?? -75.5812;
-      
+      // Usar ubicación del servicio compartido
       final stations = await _repository.getNearbyStations(
-        latitude: lat,
-        longitude: lng,
+        latitude: _locationService.latitude,
+        longitude: _locationService.longitude,
         radiusKm: 30,
       );
       
@@ -235,21 +222,16 @@ class _MapPageState extends State<MapPage> {
 
   /// Establece la ubicación del usuario manualmente
   Future<void> _setUserLocation(LatLng position) async {
+    // Actualizar el servicio compartido
+    _locationService.setLocation(
+      latitude: position.latitude,
+      longitude: position.longitude,
+      label: 'Ubicación seleccionada',
+    );
+    
     setState(() {
       _userLocation = position;
       _isSelectingLocation = false;
-      _currentPosition = Position(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        timestamp: DateTime.now(),
-        accuracy: 0,
-        altitude: 0,
-        altitudeAccuracy: 0,
-        heading: 0,
-        headingAccuracy: 0,
-        speed: 0,
-        speedAccuracy: 0,
-      );
     });
     
     _showMessage('Ubicación actualizada. Cargando estaciones cercanas...');
@@ -318,26 +300,6 @@ class _MapPageState extends State<MapPage> {
     }
     
     return markers;
-  }
-
-  /// Crea los marcadores para el mapa (versión simple de respaldo)
-  Set<Marker> _createMarkers(List<ChargingStation> stations) {
-    return stations.map((station) {
-      return Marker(
-        markerId: MarkerId(station.id),
-        position: LatLng(station.latitude, station.longitude),
-        icon: BitmapDescriptor.defaultMarkerWithHue(
-          station.hasAvailableConnectors
-              ? BitmapDescriptor.hueGreen
-              : BitmapDescriptor.hueOrange,
-        ),
-        infoWindow: InfoWindow(
-          title: station.name,
-          snippet: '${station.availabilityText} • ${station.maxPowerKw.toInt()} kW',
-        ),
-        onTap: () => _selectStation(station),
-      );
-    }).toSet();
   }
 
   @override
@@ -413,8 +375,8 @@ class _MapPageState extends State<MapPage> {
                 // Botón de ubicación actual
                 FloatingActionButton(
                   heroTag: 'location',
-                  onPressed: _isLocating ? null : _centerOnUserLocation,
-                  child: _isLocating
+                  onPressed: _locationService.isLocating ? null : _centerOnUserLocation,
+                  child: _locationService.isLocating
                       ? const SizedBox(
                           width: 24,
                           height: 24,
@@ -579,24 +541,23 @@ class _MapPageState extends State<MapPage> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       const SizedBox(height: 8),
-                      Row(
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
                         children: [
                           _buildInfoChip(
                             Icons.electrical_services,
                             '${station.maxPowerKw.toInt()} kW',
                           ),
-                          const SizedBox(width: 8),
                           _buildInfoChip(
                             Icons.power,
                             station.availabilityText,
                           ),
-                          if (station.distanceKm != null) ...[
-                            const SizedBox(width: 8),
+                          if (station.distanceKm != null)
                             _buildInfoChip(
                               Icons.navigation,
                               '${station.distanceKm!.toStringAsFixed(1)} km',
                             ),
-                          ],
                         ],
                       ),
                     ],
@@ -686,34 +647,28 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _centerOnUserLocation() async {
-    setState(() => _isLocating = true);
+    // Obtener ubicación usando el servicio compartido
+    final success = await _locationService.getCurrentLocation();
     
-    try {
-      // En modo simulador, centrar en Medellín
-      // Para dispositivo real, descomentar el código de Geolocator:
-      /*
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      setState(() {
-        _currentPosition = position;
-      });
-      */
-
+    if (success && mounted) {
       final controller = await _mapController.future;
-      controller.animateCamera(
+      await controller.animateCamera(
         CameraUpdate.newCameraPosition(
-          // Medellín - ubicación simulada para pruebas
-          const CameraPosition(
-            target: LatLng(6.2442, -75.5812),
+          CameraPosition(
+            target: LatLng(_locationService.latitude, _locationService.longitude),
             zoom: 15.0,
           ),
         ),
       );
-    } catch (e) {
+      
+      setState(() {
+        _userLocation = LatLng(_locationService.latitude, _locationService.longitude);
+      });
+      
+      // Recargar estaciones con la nueva ubicación
+      await _loadStations();
+    } else {
       _showLocationError('No se pudo obtener tu ubicación');
-    } finally {
-      setState(() => _isLocating = false);
     }
   }
 
@@ -815,11 +770,5 @@ class _MapPageState extends State<MapPage> {
         },
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _repository.dispose();
-    super.dispose();
   }
 }
