@@ -28,11 +28,13 @@ class _MapPageState extends State<MapPage> {
   // Estado
   bool _isLoading = true;
   bool _isLocating = false;
+  bool _isSelectingLocation = false;  // Modo de selección de ubicación
   String? _errorMessage;
   List<ChargingStation> _stations = [];
   ChargingStation? _selectedStation;
   Set<Marker> _markers = {};
   Position? _currentPosition;
+  LatLng? _userLocation;  // Ubicación seleccionada manualmente
   
   // Posición inicial: Medellín, Colombia
   static const CameraPosition _initialPosition = CameraPosition(
@@ -47,9 +49,8 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _initializeMap() async {
-    // En modo simulador, no obtener ubicación real (lleva a California)
-    // Descomentar la siguiente línea cuando se use en dispositivo real:
-    // await _getCurrentLocation();
+    // Obtener ubicación actual y cargar estaciones cercanas
+    await _getCurrentLocation();
     await _loadStations();
   }
 
@@ -62,6 +63,7 @@ class _MapPageState extends State<MapPage> {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         _showLocationError('El servicio de ubicación está desactivado');
+        // Usar ubicación por defecto (Medellín)
         return;
       }
 
@@ -80,29 +82,35 @@ class _MapPageState extends State<MapPage> {
         return;
       }
 
-      // Obtener ubicación actual
+      // Obtener ubicación actual con timeout
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
       );
 
-      setState(() {
-        _currentPosition = position;
-      });
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+        });
 
-      // Mover cámara a la ubicación actual
-      final controller = await _mapController.future;
-      controller.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: LatLng(position.latitude, position.longitude),
-            zoom: 14.0,
+        // Mover cámara a la ubicación actual
+        final controller = await _mapController.future;
+        await controller.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(
+              target: LatLng(position.latitude, position.longitude),
+              zoom: 14.0,
+            ),
           ),
-        ),
-      );
+        );
+      }
     } catch (e) {
       debugPrint('Error obteniendo ubicación: $e');
+      // Se usará la ubicación por defecto
     } finally {
-      setState(() => _isLocating = false);
+      if (mounted) {
+        setState(() => _isLocating = false);
+      }
     }
   }
 
@@ -128,10 +136,13 @@ class _MapPageState extends State<MapPage> {
     });
 
     try {
-      // Cargar estaciones de Medellín desde Open Charge Map
+      // Usar ubicación actual o Medellín como fallback
+      final double lat = _currentPosition?.latitude ?? 6.2442;
+      final double lng = _currentPosition?.longitude ?? -75.5812;
+      
       final stations = await _repository.getNearbyStations(
-        latitude: 6.2442, // Medellín
-        longitude: -75.5812,
+        latitude: lat,
+        longitude: lng,
         radiusKm: 30,
       );
       
@@ -177,6 +188,113 @@ class _MapPageState extends State<MapPage> {
     _repository.clearCache();
     MarkerGenerator.clearCache();
     await _loadStations();
+  }
+
+  /// Combina los marcadores de estaciones con el marcador de ubicación del usuario
+  Set<Marker> get _allMarkers {
+    final markers = Set<Marker>.from(_markers);
+    
+    // Agregar marcador de ubicación del usuario si existe
+    if (_userLocation != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('user_location'),
+        position: _userLocation!,
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        anchor: const Offset(0.5, 0.5),
+        infoWindow: const InfoWindow(title: 'Mi ubicación'),
+        zIndexInt: 999, // Siempre encima de otros marcadores
+      ));
+    }
+    
+    return markers;
+  }
+
+  /// Maneja el toque en el mapa
+  void _onMapTapped(LatLng position) {
+    if (_isSelectingLocation) {
+      // Establecer ubicación seleccionada
+      _setUserLocation(position);
+    } else {
+      // Cerrar preview al tocar el mapa
+      if (_selectedStation != null) {
+        setState(() => _selectedStation = null);
+      }
+    }
+  }
+
+  /// Activa/desactiva el modo de selección de ubicación
+  void _toggleLocationSelection() {
+    setState(() {
+      _isSelectingLocation = !_isSelectingLocation;
+      if (_isSelectingLocation) {
+        _selectedStation = null; // Cerrar preview si está abierto
+        _showMessage('Toca el mapa para establecer tu ubicación');
+      }
+    });
+  }
+
+  /// Establece la ubicación del usuario manualmente
+  Future<void> _setUserLocation(LatLng position) async {
+    setState(() {
+      _userLocation = position;
+      _isSelectingLocation = false;
+      _currentPosition = Position(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        timestamp: DateTime.now(),
+        accuracy: 0,
+        altitude: 0,
+        altitudeAccuracy: 0,
+        heading: 0,
+        headingAccuracy: 0,
+        speed: 0,
+        speedAccuracy: 0,
+      );
+    });
+    
+    _showMessage('Ubicación actualizada. Cargando estaciones cercanas...');
+    
+    // Recargar estaciones desde la nueva ubicación
+    await _loadStations();
+  }
+
+  /// Widget del banner de selección de ubicación
+  Widget _buildLocationSelectionBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(40),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.touch_app, color: Colors.white),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+              'Toca el mapa para establecer tu ubicación',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white),
+            onPressed: () => setState(() => _isSelectingLocation = false),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Crea los marcadores personalizados para el mapa (asíncrono)
@@ -233,7 +351,7 @@ class _MapPageState extends State<MapPage> {
             onMapCreated: (controller) {
               _mapController.complete(controller);
             },
-            markers: _markers,
+            markers: _allMarkers,
             // Desactivado para simulador (muestra California)
             // myLocationEnabled: true,
             myLocationEnabled: false,
@@ -241,13 +359,17 @@ class _MapPageState extends State<MapPage> {
             zoomControlsEnabled: false,
             mapToolbarEnabled: false,
             compassEnabled: true,
-            onTap: (_) {
-              // Cerrar preview al tocar el mapa
-              if (_selectedStation != null) {
-                setState(() => _selectedStation = null);
-              }
-            },
+            onTap: _onMapTapped,
           ),
+
+          // Banner de modo selección de ubicación
+          if (_isSelectingLocation)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 80,
+              left: 16,
+              right: 16,
+              child: _buildLocationSelectionBanner(),
+            ),
 
           // Barra de búsqueda superior
           Positioned(
@@ -302,6 +424,17 @@ class _MapPageState extends State<MapPage> {
                           ),
                         )
                       : const Icon(Icons.my_location),
+                ),
+                const SizedBox(height: 8),
+                // Botón para seleccionar ubicación manualmente
+                FloatingActionButton.small(
+                  heroTag: 'select_location',
+                  onPressed: _toggleLocationSelection,
+                  backgroundColor: _isSelectingLocation ? AppColors.primary : Colors.white,
+                  child: Icon(
+                    Icons.add_location_alt,
+                    color: _isSelectingLocation ? Colors.white : AppColors.primary,
+                  ),
                 ),
               ],
             ),
