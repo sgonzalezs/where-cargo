@@ -7,6 +7,7 @@ import '../widgets/station_card.dart';
 import 'station_detail_page.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/location_service.dart';
+import '../../../../shared/services/favorites_service.dart';
 
 /// Página con lista de estaciones de carga
 class StationsListPage extends StatefulWidget {
@@ -20,6 +21,7 @@ class _StationsListPageState extends State<StationsListPage> {
   final TextEditingController _searchController = TextEditingController();
   final ChargingStationsRepository _repository = ChargingStationsRepository();
   final LocationService _locationService = LocationService();
+  final FavoritesService _favoritesService = FavoritesService();
   
   bool _isLoading = false;
   List<ChargingStation> _allStations = [];
@@ -36,15 +38,22 @@ class _StationsListPageState extends State<StationsListPage> {
   void initState() {
     super.initState();
     _locationService.addListener(_onLocationChanged);
+    _favoritesService.addListener(_onFavoritesChanged);
+    _favoritesService.loadFavorites();
     _loadStations();
   }
 
   @override
   void dispose() {
     _locationService.removeListener(_onLocationChanged);
+    _favoritesService.removeListener(_onFavoritesChanged);
     _searchController.dispose();
     _repository.dispose();
     super.dispose();
+  }
+
+  void _onFavoritesChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onLocationChanged() {
@@ -473,7 +482,7 @@ class _StationsListPageState extends State<StationsListPage> {
                   station: station,
                   onTap: () => _navigateToDetail(station),
                   onFavoriteTap: () => _toggleFavorite(station),
-                  isFavorite: false, // TODO: Implementar favoritos
+                  isFavorite: _favoritesService.isFavorite(station.id),
                 );
               },
             ),
@@ -492,14 +501,21 @@ class _StationsListPageState extends State<StationsListPage> {
     );
   }
 
-  void _toggleFavorite(ChargingStation station) {
-    // TODO: Implementar toggle de favoritos
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${station.name} agregado a favoritos'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  void _toggleFavorite(ChargingStation station) async {
+    final wasAdded = await _favoritesService.toggleFavorite(station);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            wasAdded
+                ? '${station.name} agregado a favoritos'
+                : '${station.name} eliminado de favoritos',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   void _showFilters() {

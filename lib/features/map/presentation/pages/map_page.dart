@@ -7,8 +7,10 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../charging_stations/domain/models/charging_station.dart';
 import '../../../charging_stations/data/repositories/charging_stations_repository.dart';
 import '../../../charging_stations/presentation/pages/station_detail_page.dart';
+import '../../../navigation_apps/presentation/widgets/navigation_options_sheet.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/location_service.dart';
+import '../../../../shared/services/favorites_service.dart';
 import '../widgets/marker_generator.dart';
 
 /// Página del mapa con estaciones de carga
@@ -29,6 +31,9 @@ class _MapPageState extends State<MapPage> {
   // Servicio de ubicación compartido
   final LocationService _locationService = LocationService();
   
+  // Servicio de favoritos
+  final FavoritesService _favoritesService = FavoritesService();
+  
   // Estado
   bool _isLoading = true;
   bool _isSelectingLocation = false;  // Modo de selección de ubicación
@@ -48,14 +53,21 @@ class _MapPageState extends State<MapPage> {
   void initState() {
     super.initState();
     _locationService.addListener(_onLocationChanged);
+    _favoritesService.addListener(_onFavoritesChanged);
+    _favoritesService.loadFavorites();
     _initializeMap();
   }
 
   @override
   void dispose() {
     _locationService.removeListener(_onLocationChanged);
+    _favoritesService.removeListener(_onFavoritesChanged);
     _repository.dispose();
     super.dispose();
+  }
+
+  void _onFavoritesChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onLocationChanged() {
@@ -566,6 +578,17 @@ class _MapPageState extends State<MapPage> {
                 Column(
                   children: [
                     IconButton(
+                      icon: Icon(
+                        _favoritesService.isFavorite(station.id)
+                            ? Icons.favorite
+                            : Icons.favorite_border,
+                        color: _favoritesService.isFavorite(station.id)
+                            ? Colors.red
+                            : AppColors.textSecondary,
+                      ),
+                      onPressed: () => _toggleFavorite(station),
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.directions),
                       color: AppColors.primary,
                       onPressed: () => _navigateToStation(station),
@@ -632,18 +655,34 @@ class _MapPageState extends State<MapPage> {
   }
 
   void _navigateToStation(ChargingStation station) {
-    // TODO: Integrar con NavigationService para abrir Waze/Google Maps
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Navegando a ${station.name}'),
-        action: SnackBarAction(
-          label: 'Abrir',
-          onPressed: () {
-            // TODO: Abrir navegación externa
-          },
-        ),
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => NavigationOptionsSheet(
+        destinationLat: station.latitude,
+        destinationLng: station.longitude,
+        destinationName: station.name,
       ),
     );
+  }
+
+  void _toggleFavorite(ChargingStation station) async {
+    final wasAdded = await _favoritesService.toggleFavorite(station);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            wasAdded
+                ? '${station.name} agregado a favoritos'
+                : '${station.name} eliminado de favoritos',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   Future<void> _centerOnUserLocation() async {

@@ -5,6 +5,7 @@ import '../../../charging_stations/presentation/widgets/station_card.dart';
 import '../../../charging_stations/presentation/pages/station_detail_page.dart';
 import '../../domain/models/favorite_station.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/favorites_service.dart';
 
 /// Página de estaciones favoritas
 class FavoritesPage extends StatefulWidget {
@@ -15,34 +16,38 @@ class FavoritesPage extends StatefulWidget {
 }
 
 class _FavoritesPageState extends State<FavoritesPage> {
-  bool _isLoading = true;
-  List<FavoriteStation> _favorites = [];
+  final FavoritesService _favoritesService = FavoritesService();
 
   @override
   void initState() {
     super.initState();
+    _favoritesService.addListener(_onFavoritesChanged);
     _loadFavorites();
   }
 
+  @override
+  void dispose() {
+    _favoritesService.removeListener(_onFavoritesChanged);
+    super.dispose();
+  }
+
+  void _onFavoritesChanged() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _loadFavorites() async {
-    setState(() => _isLoading = true);
-
-    // TODO: Cargar desde repositorio
-    await Future.delayed(const Duration(seconds: 1));
-
-    setState(() {
-      _favorites = _getMockFavorites();
-      _isLoading = false;
-    });
+    await _favoritesService.loadFavorites();
   }
 
   @override
   Widget build(BuildContext context) {
+    final favorites = _favoritesService.favorites;
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Favoritos'),
         actions: [
-          if (_favorites.isNotEmpty)
+          if (favorites.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.sort),
               onPressed: _showSortOptions,
@@ -54,11 +59,13 @@ class _FavoritesPageState extends State<FavoritesPage> {
   }
 
   Widget _buildContent() {
-    if (_isLoading) {
+    if (_favoritesService.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_favorites.isEmpty) {
+    final favorites = _favoritesService.favorites;
+    
+    if (favorites.isEmpty) {
       return _buildEmptyState();
     }
 
@@ -66,9 +73,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
       onRefresh: _loadFavorites,
       child: ListView.builder(
         padding: const EdgeInsets.only(top: 8, bottom: 16),
-        itemCount: _favorites.length,
+        itemCount: favorites.length,
         itemBuilder: (context, index) {
-          final favorite = _favorites[index];
+          final favorite = favorites[index];
           if (favorite.station == null) return const SizedBox.shrink();
 
           return Dismissible(
@@ -161,24 +168,26 @@ class _FavoritesPageState extends State<FavoritesPage> {
     ) ?? false;
   }
 
-  void _removeFavorite(FavoriteStation favorite) {
-    setState(() {
-      _favorites.removeWhere((f) => f.id == favorite.id);
-    });
+  void _removeFavorite(FavoriteStation favorite) async {
+    final stationName = favorite.station?.name ?? 'Estación';
+    
+    await _favoritesService.removeFavoriteById(favorite.id);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${favorite.station?.name} eliminado de favoritos'),
-        action: SnackBarAction(
-          label: 'Deshacer',
-          onPressed: () {
-            setState(() {
-              _favorites.add(favorite);
-            });
-          },
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$stationName eliminado de favoritos'),
+          action: SnackBarAction(
+            label: 'Deshacer',
+            onPressed: () async {
+              if (favorite.station != null) {
+                await _favoritesService.addFavorite(favorite.station!);
+              }
+            },
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   void _showSortOptions() {
@@ -201,9 +210,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               leading: const Icon(Icons.access_time),
               title: const Text('Fecha de agregado'),
               onTap: () {
-                setState(() {
-                  _favorites.sort((a, b) => b.addedAt.compareTo(a.addedAt));
-                });
+                _favoritesService.sortByDate();
                 Navigator.pop(context);
               },
             ),
@@ -211,10 +218,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               leading: const Icon(Icons.sort_by_alpha),
               title: const Text('Nombre'),
               onTap: () {
-                setState(() {
-                  _favorites.sort((a, b) =>
-                      (a.station?.name ?? '').compareTo(b.station?.name ?? ''));
-                });
+                _favoritesService.sortByName();
                 Navigator.pop(context);
               },
             ),
@@ -222,11 +226,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
               leading: const Icon(Icons.location_on),
               title: const Text('Distancia'),
               onTap: () {
-                setState(() {
-                  _favorites.sort((a, b) =>
-                      (a.station?.distanceKm ?? 999)
-                          .compareTo(b.station?.distanceKm ?? 999));
-                });
+                _favoritesService.sortByDistance();
                 Navigator.pop(context);
               },
             ),
@@ -234,54 +234,5 @@ class _FavoritesPageState extends State<FavoritesPage> {
         ),
       ),
     );
-  }
-
-  List<FavoriteStation> _getMockFavorites() {
-    return [
-      FavoriteStation(
-        id: 'f1',
-        stationId: '1',
-        addedAt: DateTime.now().subtract(const Duration(days: 5)),
-        station: ChargingStation.fromJson({
-          'id': '1',
-          'name': 'Celsia Solar - Centro Comercial Andino',
-          'address': 'Cra. 11 #82-71',
-          'city': 'Bogotá',
-          'country': 'Colombia',
-          'latitude': 4.6667,
-          'longitude': -74.0527,
-          'status': 'available',
-          'payment_type': 'paid',
-          'network_name': 'Celsia Solar',
-          'connectors': [
-            {'id': 'c1', 'type': 'ccs2', 'charging_type': 'dc', 'power_kw': 50, 'status': 'available'},
-          ],
-          'rating': 4.5,
-          'distance_km': 2.3,
-        }),
-      ),
-      FavoriteStation(
-        id: 'f2',
-        stationId: '2',
-        addedAt: DateTime.now().subtract(const Duration(days: 2)),
-        station: ChargingStation.fromJson({
-          'id': '2',
-          'name': 'Enel X - Parque 93',
-          'address': 'Cra. 13 #93A-20',
-          'city': 'Bogotá',
-          'country': 'Colombia',
-          'latitude': 4.6782,
-          'longitude': -74.0486,
-          'status': 'available',
-          'payment_type': 'paid',
-          'network_name': 'Enel X',
-          'connectors': [
-            {'id': 'c2', 'type': 'ccs2', 'charging_type': 'dc', 'power_kw': 150, 'status': 'available'},
-          ],
-          'rating': 4.8,
-          'distance_km': 3.1,
-        }),
-      ),
-    ];
   }
 }

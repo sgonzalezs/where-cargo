@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Servicio para integración con apps de navegación
 class NavigationService {
@@ -122,10 +123,15 @@ class NavigationService {
   }
 
   Future<bool> _launchUrl(String url) async {
-    // TODO: Implementar usando url_launcher package
-    // Por ahora retornamos false ya que necesitamos agregar la dependencia
-    // return await launchUrl(Uri.parse(url));
-    return false;
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        return await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
   }
 }
 

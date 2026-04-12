@@ -3,15 +3,60 @@ import 'package:flutter/material.dart';
 import '../../domain/enums/charging_enums.dart';
 import '../../domain/models/charging_station.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/favorites_service.dart';
+import '../../../navigation_apps/presentation/widgets/navigation_options_sheet.dart';
 
 /// Página de detalle de una estación de carga
-class StationDetailPage extends StatelessWidget {
+class StationDetailPage extends StatefulWidget {
   final ChargingStation station;
 
   const StationDetailPage({
     super.key,
     required this.station,
   });
+
+  @override
+  State<StationDetailPage> createState() => _StationDetailPageState();
+}
+
+class _StationDetailPageState extends State<StationDetailPage> {
+  final FavoritesService _favoritesService = FavoritesService();
+
+  ChargingStation get station => widget.station;
+
+  @override
+  void initState() {
+    super.initState();
+    _favoritesService.addListener(_onFavoritesChanged);
+    _favoritesService.loadFavorites();
+  }
+
+  @override
+  void dispose() {
+    _favoritesService.removeListener(_onFavoritesChanged);
+    super.dispose();
+  }
+
+  void _onFavoritesChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _toggleFavorite() async {
+    final wasAdded = await _favoritesService.toggleFavorite(station);
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            wasAdded
+                ? '${station.name} agregado a favoritos'
+                : '${station.name} eliminado de favoritos',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,10 +130,15 @@ class StationDetailPage extends StatelessWidget {
       ),
       actions: [
         IconButton(
-          icon: const Icon(Icons.favorite_border),
-          onPressed: () {
-            // TODO: Implementar favoritos
-          },
+          icon: Icon(
+            _favoritesService.isFavorite(station.id)
+                ? Icons.favorite
+                : Icons.favorite_border,
+            color: _favoritesService.isFavorite(station.id)
+                ? Colors.red
+                : null,
+          ),
+          onPressed: _toggleFavorite,
         ),
         IconButton(
           icon: const Icon(Icons.share),
@@ -462,9 +512,7 @@ class StationDetailPage extends StatelessWidget {
         children: [
           Expanded(
             child: ElevatedButton.icon(
-              onPressed: () {
-                // TODO: Implementar navegación
-              },
+              onPressed: () => _showNavigationOptions(context),
               icon: const Icon(Icons.directions),
               label: const Text('Navegar'),
               style: ElevatedButton.styleFrom(
@@ -485,6 +533,20 @@ class StationDetailPage extends StatelessWidget {
             child: const Icon(Icons.phone),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showNavigationOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => NavigationOptionsSheet(
+        destinationLat: station.latitude,
+        destinationLng: station.longitude,
+        destinationName: station.name,
       ),
     );
   }
