@@ -6,7 +6,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     
     <application
-        android:label="where_cargo"
+        android:label="WhereCargo"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
