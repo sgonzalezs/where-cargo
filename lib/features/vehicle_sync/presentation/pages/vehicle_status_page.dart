@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../domain/models/vehicle.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/vehicle_service.dart';
+import 'vehicle_form_page.dart';
 
 /// Página de estado del vehículo
 class VehicleStatusPage extends StatefulWidget {
@@ -12,26 +14,26 @@ class VehicleStatusPage extends StatefulWidget {
 }
 
 class _VehicleStatusPageState extends State<VehicleStatusPage> {
-  Vehicle? _vehicle;
-  bool _isLoading = true;
+  final VehicleService _vehicleService = VehicleService();
 
   @override
   void initState() {
     super.initState();
-    _loadVehicle();
+    _vehicleService.addListener(_onVehicleChanged);
+    _vehicleService.loadVehicles();
   }
 
-  Future<void> _loadVehicle() async {
-    setState(() => _isLoading = true);
-
-    // TODO: Cargar desde repositorio
-    await Future.delayed(const Duration(seconds: 1));
-
-    setState(() {
-      _vehicle = _getMockVehicle();
-      _isLoading = false;
-    });
+  @override
+  void dispose() {
+    _vehicleService.removeListener(_onVehicleChanged);
+    super.dispose();
   }
+
+  void _onVehicleChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Vehicle? get _vehicle => _vehicleService.primaryVehicle;
 
   @override
   Widget build(BuildContext context) {
@@ -39,23 +41,88 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
       appBar: AppBar(
         title: const Text('Mi Vehículo'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadVehicle,
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              // TODO: Configuración del vehículo
-            },
-          ),
+          if (_vehicle != null)
+            IconButton(
+              icon: const Icon(Icons.edit),
+              onPressed: () => _navigateToForm(_vehicle),
+            ),
+          if (_vehicleService.count > 1)
+            IconButton(
+              icon: const Icon(Icons.swap_horiz),
+              onPressed: _showVehicleSelector,
+              tooltip: 'Cambiar vehículo',
+            ),
         ],
       ),
-      body: _isLoading
+      body: _vehicleService.isLoading
           ? const Center(child: CircularProgressIndicator())
           : _vehicle == null
               ? _buildNoVehicle()
               : _buildVehicleInfo(),
+      floatingActionButton: _vehicle != null
+          ? FloatingActionButton(
+              onPressed: () => _navigateToForm(null),
+              child: const Icon(Icons.add),
+              tooltip: 'Agregar otro vehículo',
+            )
+          : null,
+    );
+  }
+
+  void _navigateToForm(Vehicle? vehicle) async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VehicleFormPage(vehicle: vehicle),
+      ),
+    );
+    
+    if (result == true && mounted) {
+      setState(() {});
+    }
+  }
+
+  void _showVehicleSelector() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Seleccionar Vehículo',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            ..._vehicleService.vehicles.map((vehicle) {
+              final isSelected = vehicle.id == _vehicle?.id;
+              return ListTile(
+                leading: Icon(
+                  Icons.electric_car,
+                  color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                ),
+                title: Text(vehicle.displayName),
+                subtitle: Text('${vehicle.brand} ${vehicle.model}'),
+                trailing: isSelected
+                    ? const Icon(Icons.check_circle, color: AppColors.primary)
+                    : null,
+                onTap: () async {
+                  await _vehicleService.setPrimaryVehicle(vehicle.id);
+                  if (mounted) Navigator.pop(context);
+                },
+              );
+            }),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 
@@ -82,9 +149,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(
-            onPressed: () {
-              // TODO: Agregar vehículo
-            },
+            onPressed: () => _navigateToForm(null),
             icon: const Icon(Icons.add),
             label: const Text('Agregar Vehículo'),
           ),
@@ -167,12 +232,6 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
                   ),
                 ],
               ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () {
-                // TODO: Editar vehículo
-              },
             ),
           ],
         ),
@@ -439,21 +498,5 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
         ],
       ),
     );
-  }
-
-  Vehicle _getMockVehicle() {
-    return Vehicle.fromJson({
-      'id': 'v1',
-      'name': 'Mi Tesla',
-      'brand': 'Tesla',
-      'model': 'Model 3 Long Range',
-      'year': 2023,
-      'battery_capacity_kwh': 82,
-      'current_battery_percent': 65,
-      'estimated_range_km': 380,
-      'compatible_connectors': ['Type 2', 'CCS2', 'Tesla Supercharger'],
-      'max_charging_power_kw': 250,
-      'is_primary': true,
-    });
   }
 }
