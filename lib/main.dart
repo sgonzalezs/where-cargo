@@ -42,7 +42,7 @@ class WhereCargo extends StatelessWidget {
       themeMode: ThemeMode.system,
       
       // Navegación
-      initialRoute: AppRouter.home,
+      initialRoute: AppRouter.splash,
       onGenerateRoute: AppRouter.generateRoute,
     );
   }
