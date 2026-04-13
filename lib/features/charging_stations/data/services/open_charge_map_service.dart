@@ -350,6 +350,51 @@ class OpenChargeMapService {
     }
   }
 
+  /// Obtiene una estación específica por su ID
+  /// Útil para refrescar datos de una estación
+  Future<ChargingStation?> getStationById({
+    required String stationId,
+    double? userLat,
+    double? userLng,
+  }) async {
+    try {
+      final queryParams = {
+        'output': 'json',
+        'chargepointid': stationId,
+        'compact': 'true',
+        'verbose': 'false',
+        'key': _apiKey,
+      };
+
+      final uri = Uri.parse('$_baseUrl/poi/').replace(queryParameters: queryParams);
+      
+      final response = await _client.get(
+        uri,
+        headers: {
+          HttpHeaders.acceptHeader: 'application/json',
+          HttpHeaders.userAgentHeader: 'WhereCargo/1.0 (Flutter App)',
+        },
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        if (data.isEmpty) return null;
+        
+        return _mapToChargingStation(
+          data.first as Map<String, dynamic>,
+          userLat ?? 0,
+          userLng ?? 0,
+        );
+      } else {
+        throw Exception('Error API OCM: ${response.statusCode}');
+      }
+    } on SocketException {
+      throw Exception('Sin conexión a internet');
+    } catch (e) {
+      throw Exception('Error obteniendo estación: $e');
+    }
+  }
+
   void dispose() {
     _client.close();
   }

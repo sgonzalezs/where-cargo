@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/enums/charging_enums.dart';
 import '../../domain/models/charging_station.dart';
+import '../../data/repositories/charging_stations_repository.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/favorites_service.dart';
 import '../../../navigation_apps/presentation/widgets/navigation_options_sheet.dart';
@@ -21,14 +22,19 @@ class StationDetailPage extends StatefulWidget {
 
 class _StationDetailPageState extends State<StationDetailPage> {
   final FavoritesService _favoritesService = FavoritesService();
+  final ChargingStationsRepository _repository = ChargingStationsRepository();
 
-  ChargingStation get station => widget.station;
+  late ChargingStation _station;
+  bool _isRefreshing = false;
+  DateTime? _lastRefreshed;
 
   @override
   void initState() {
     super.initState();
+    _station = widget.station;
     _favoritesService.addListener(_onFavoritesChanged);
     _favoritesService.loadFavorites();
+    _refreshStationData();
   }
 
   @override
@@ -41,16 +47,42 @@ class _StationDetailPageState extends State<StationDetailPage> {
     if (mounted) setState(() {});
   }
 
+  /// Refresca los datos de la estación desde la API
+  Future<void> _refreshStationData() async {
+    if (_isRefreshing) return;
+    
+    setState(() => _isRefreshing = true);
+    
+    try {
+      final refreshed = await _repository.refreshStation(_station);
+      if (mounted && refreshed != null) {
+        setState(() {
+          _station = refreshed;
+          _lastRefreshed = DateTime.now();
+        });
+      }
+    } catch (e) {
+      // Silenciosamente manejar el error, mantener datos originales
+      debugPrint('Error refrescando estación: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshing = false);
+      }
+    }
+  }
+
+  ChargingStation get station => _station;
+
   void _toggleFavorite() async {
-    final wasAdded = await _favoritesService.toggleFavorite(station);
+    final wasAdded = await _favoritesService.toggleFavorite(_station);
     
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             wasAdded
-                ? '${station.name} agregado a favoritos'
-                : '${station.name} eliminado de favoritos',
+                ? '${_station.name} agregado a favoritos'
+                : '${_station.name} eliminado de favoritos',
           ),
           duration: const Duration(seconds: 2),
         ),
@@ -156,6 +188,9 @@ class _StationDetailPageState extends State<StationDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Banner de estado de actualización
+          _buildRefreshStatusBanner(),
+          const SizedBox(height: 12),
           Row(
             children: [
               _buildStatusBadge(context),
@@ -167,7 +202,7 @@ class _StationDetailPageState extends State<StationDetailPage> {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.success.withOpacity(0.1),
+                    color: AppColors.success.withAlpha(25),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Text(
@@ -220,35 +255,121 @@ class _StationDetailPageState extends State<StationDetailPage> {
     );
   }
 
+  Widget _buildRefreshStatusBanner() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _isRefreshing 
+            ? AppColors.primary.withAlpha(25) 
+            : AppColors.success.withAlpha(25),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          if (_isRefreshing) ...[
+            const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'Verificando disponibilidad...',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+          ] else ...[
+            Icon(
+              Icons.check_circle,
+              size: 16,
+              color: AppColors.success,
+            ),
+            const SizedBox(width: 8),
+            Text(
+              _getLastUpdateText(),
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const Spacer(),
+            GestureDetector(
+              onTap: _refreshStationData,
+              child: const Icon(
+                Icons.refresh,
+                size: 18,
+                color: AppColors.primary,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _getLastUpdateText() {
+    if (_lastRefreshed != null) {
+      return 'Verificado hace ${_formatTimeDifference(_lastRefreshed!)}';
+    }
+    if (station.lastUpdated != null) {
+      return 'Última actualización: ${_formatDate(station.lastUpdated!)}';
+    }
+    return 'Datos verificados';
+  }
+
+  String _formatTimeDifference(DateTime time) {
+    final diff = DateTime.now().difference(time);
+    if (diff.inSeconds < 60) return 'unos segundos';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min';
+    if (diff.inHours < 24) return '${diff.inHours}h';
+    return '${diff.inDays} días';
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final diff = now.difference(date);
+    
+    if (diff.inDays == 0) return 'hoy';
+    if (diff.inDays == 1) return 'ayer';
+    if (diff.inDays < 7) return 'hace ${diff.inDays} días';
+    if (diff.inDays < 30) return 'hace ${(diff.inDays / 7).floor()} semanas';
+    return 'hace ${(diff.inDays / 30).floor()} meses';
+  }
+
   Widget _buildStatusBadge(BuildContext context) {
-    final color = station.hasAvailableConnectors
-        ? AppColors.stationAvailable
-        : AppColors.stationOccupied;
+    // Determinar color y texto basado en el estado
+    final Color color;
+    final String statusText;
+    final IconData statusIcon;
+    
+    if (station.status == StationStatus.offline) {
+      color = AppColors.error;
+      statusText = 'Fuera de servicio';
+      statusIcon = Icons.power_off;
+    } else if (station.hasAvailableConnectors) {
+      color = AppColors.stationAvailable;
+      statusText = station.availabilityText;
+      statusIcon = Icons.check_circle;
+    } else {
+      color = AppColors.stationOccupied;
+      statusText = station.availabilityText;
+      statusIcon = Icons.access_time;
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withAlpha(25),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: color),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 8),
+          Icon(statusIcon, size: 14, color: color),
+          const SizedBox(width: 6),
           Text(
-            station.availabilityText,
+            statusText,
             style: TextStyle(
               color: color,
               fontWeight: FontWeight.w600,
+              fontSize: 13,
             ),
           ),
         ],

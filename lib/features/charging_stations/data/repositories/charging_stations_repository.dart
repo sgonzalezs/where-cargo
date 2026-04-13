@@ -117,7 +117,7 @@ class ChargingStationsRepository {
     );
   }
 
-  /// Obtiene una estación por ID
+  /// Obtiene una estación por ID (primero cache, luego API)
   Future<ChargingStation?> getStationById(String id) async {
     // Buscar en cache primero
     if (_cachedStations != null) {
@@ -125,8 +125,40 @@ class ChargingStationsRepository {
       if (cached != null) return cached;
     }
 
-    // TODO: Implementar llamada a API para obtener estación individual
-    return null;
+    // Si no está en cache, obtener del API
+    return _ocmService.getStationById(
+      stationId: id,
+      userLat: _lastLatitude,
+      userLng: _lastLongitude,
+    );
+  }
+
+  /// Refresca los datos de una estación desde el API
+  /// Útil para obtener información actualizada de disponibilidad
+  Future<ChargingStation?> refreshStation(ChargingStation station) async {
+    try {
+      final refreshed = await _ocmService.getStationById(
+        stationId: station.id,
+        userLat: _lastLatitude ?? station.latitude,
+        userLng: _lastLongitude ?? station.longitude,
+      );
+
+      if (refreshed != null) {
+        // Actualizar en cache si existe
+        if (_cachedStations != null) {
+          final index = _cachedStations!.indexWhere((s) => s.id == station.id);
+          if (index != -1) {
+            _cachedStations![index] = refreshed;
+          }
+        }
+        return refreshed;
+      }
+      
+      return station; // Devolver original si no se pudo refrescar
+    } catch (e) {
+      // Si hay error, devolver la estación original
+      return station;
+    }
   }
 
   /// Filtra estaciones según criterios
