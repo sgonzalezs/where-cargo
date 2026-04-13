@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Fondo verde con esquinas redondeadas -->
+  <rect width="1024" height="1024" fill="#00C853" rx="180" ry="180"/>
+  
+  <!-- Círculo decorativo interior -->
+  <circle cx="512" cy="480" r="320" fill="#00E676" opacity="0.25"/>
+  
+  <!-- Estación de carga - Base blanca -->
+  <rect x="340" y="220" width="344" height="480" rx="40" fill="white"/>
+  
+  <!-- Pantalla de la estación -->
+  <rect x="380" y="260" width="264" height="160" rx="15" fill="#E8F5E9"/>
+  
+  <!-- Rayo en la pantalla -->
+  <path d="M540,280 L460,360 L510,360 L480,420 L560,340 L510,340 Z" fill="#00C853"/>
+  
+  <!-- Indicadores LED -->
+  <circle cx="420" cy="460" r="15" fill="#00C853"/>
+  <circle cx="470" cy="460" r="15" fill="#00C853"/>
+  <circle cx="520" cy="460" r="15" fill="#4CAF50" opacity="0.5"/>
+  
+  <!-- Área del conector -->
+  <rect x="400" y="520" width="224" height="80" rx="15" fill="#F5F5F5"/>
+  <circle cx="470" cy="560" r="25" fill="#BDBDBD"/>
+  <circle cx="554" cy="560" r="25" fill="#BDBDBD"/>
+  
+  <!-- Cable que sale -->
+  <path d="M684,560 Q760,560 760,640 Q760,720 700,780" stroke="white" stroke-width="30" fill="none" stroke-linecap="round"/>
+  
+  <!-- Conector del cable -->
+  <rect x="660" y="760" width="80" height="100" rx="15" fill="white"/>
+  <circle cx="700" cy="810" r="20" fill="#BDBDBD"/>
+  
+  <!-- Texto WHERE CARGO -->
+  <text x="512" y="950" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="bold" fill="white" text-anchor="middle" letter-spacing="4">WHERE CARGO</text>
+</svg>
