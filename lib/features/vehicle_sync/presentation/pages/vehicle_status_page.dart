@@ -62,8 +62,8 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
       floatingActionButton: _vehicle != null
           ? FloatingActionButton(
               onPressed: () => _navigateToForm(null),
-              child: const Icon(Icons.add),
               tooltip: 'Agregar otro vehículo',
+              child: const Icon(Icons.add),
             )
           : null,
     );

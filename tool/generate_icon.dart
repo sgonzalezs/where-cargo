@@ -2,7 +2,6 @@
 // Ejecutar con: dart run tool/generate_icon.dart
 
 import 'dart:io';
-import 'dart:math';
 import 'package:image/image.dart' as img;
 
 void main() async {

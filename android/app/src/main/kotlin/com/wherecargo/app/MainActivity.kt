@@ -1,4 +1,4 @@
-package com.example.where_cargo
+package com.wherecargo.app
 
 import io.flutter.embedding.android.FlutterActivity
 
