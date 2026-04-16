@@ -57,7 +57,8 @@ class _StationDetailPageState extends State<StationDetailPage> {
       final refreshed = await _repository.refreshStation(_station);
       if (mounted && refreshed != null) {
         setState(() {
-          _station = refreshed;
+          // Preservar la distancia original ya que no cambia
+          _station = refreshed.copyWith(distanceKm: _station.distanceKm);
           _lastRefreshed = DateTime.now();
         });
       }
