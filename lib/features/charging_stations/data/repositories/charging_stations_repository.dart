@@ -2,30 +2,30 @@ import 'dart:math' as math;
 
 import '../../domain/models/charging_station.dart';
 import '../../domain/enums/charging_enums.dart';
+import '../../../filters/domain/models/station_filters.dart';
 import '../services/open_charge_map_service.dart';
 
 /// Repositorio para gestionar estaciones de carga
-/// 
+///
 /// Maneja la obtención de datos desde Open Charge Map API
 /// y proporciona cache local para mejor performance.
 class ChargingStationsRepository {
   final OpenChargeMapService _ocmService;
-  
+
   // Cache local de estaciones
   List<ChargingStation>? _cachedStations;
   DateTime? _lastFetch;
   double? _lastLatitude;
   double? _lastLongitude;
-  
+
   static const Duration _cacheExpiration = Duration(minutes: 10);
   static const double _locationThreshold = 0.01; // ~1km de diferencia
 
-  ChargingStationsRepository({
-    OpenChargeMapService? ocmService,
-  }) : _ocmService = ocmService ?? OpenChargeMapService();
+  ChargingStationsRepository({OpenChargeMapService? ocmService})
+    : _ocmService = ocmService ?? OpenChargeMapService();
 
   /// Obtiene estaciones cercanas a una ubicación
-  /// 
+  ///
   /// Usa cache si la ubicación es similar y no ha expirado
   /// Si forceRefresh es true, siempre recarga del API
   /// Si recalculateDistances es true, recalcula las distancias con la nueva ubicación
@@ -37,7 +37,7 @@ class ChargingStationsRepository {
   }) async {
     // Verificar si la ubicación cambió significativamente
     final locationChanged = !_isSameLocation(latitude, longitude);
-    
+
     // Verificar si podemos usar cache (si la ubicación no cambió mucho y no expiró)
     if (!forceRefresh && _canUseCache(latitude, longitude)) {
       // Si la ubicación cambió un poco pero tenemos cache válido,
@@ -57,9 +57,11 @@ class ChargingStationsRepository {
       );
 
       // Ordenar por distancia
-      stations.sort((a, b) => 
-          (a.distanceKm ?? double.infinity)
-              .compareTo(b.distanceKm ?? double.infinity));
+      stations.sort(
+        (a, b) => (a.distanceKm ?? double.infinity).compareTo(
+          b.distanceKm ?? double.infinity,
+        ),
+      );
 
       // Actualizar cache
       _cachedStations = stations;
@@ -98,11 +100,9 @@ class ChargingStationsRepository {
   }) async {
     // Si tenemos cache, buscar localmente primero
     if (_cachedStations != null && _cachedStations!.isNotEmpty) {
-      final localResults = _cachedStations!.where((station) =>
-          station.name.toLowerCase().contains(query.toLowerCase()) ||
-          station.address.toLowerCase().contains(query.toLowerCase()) ||
-          (station.networkName?.toLowerCase().contains(query.toLowerCase()) ?? false)
-      ).toList();
+      final localResults = _cachedStations!
+          .where((station) => _matchesSearchQuery(station, query))
+          .toList();
 
       if (localResults.isNotEmpty) {
         return localResults;
@@ -153,7 +153,7 @@ class ChargingStationsRepository {
         }
         return refreshed;
       }
-      
+
       return station; // Devolver original si no se pudo refrescar
     } catch (e) {
       // Si hay error, devolver la estación original
@@ -164,15 +164,34 @@ class ChargingStationsRepository {
   /// Filtra estaciones según criterios
   List<ChargingStation> filterStations(
     List<ChargingStation> stations, {
+    String? query,
+    String? city,
     Set<ConnectorType>? connectorTypes,
     Set<ChargingType>? chargingTypes,
+    Set<ChargingSpeed>? chargingSpeeds,
     ChargingSpeed? minSpeed,
+    double? minPowerKw,
+    double? maxPowerKw,
     bool? onlyAvailable,
     bool? onlyFree,
+    bool? onlyOpenNow,
     double? maxDistanceKm,
     String? networkName,
+    SortOption sortBy = SortOption.distance,
   }) {
-    return stations.where((station) {
+    final filtered = stations.where((station) {
+      if (query != null && query.trim().isNotEmpty) {
+        if (!_matchesSearchQuery(station, query)) {
+          return false;
+        }
+      }
+
+      if (city != null && city.trim().isNotEmpty) {
+        if (_normalizeForSearch(station.city) != _normalizeForSearch(city)) {
+          return false;
+        }
+      }
+
       // Filtro por tipos de conector
       if (connectorTypes != null && connectorTypes.isNotEmpty) {
         if (!station.connectorTypes.any((t) => connectorTypes.contains(t))) {
@@ -187,9 +206,33 @@ class ChargingStationsRepository {
         }
       }
 
+      if (chargingSpeeds != null && chargingSpeeds.isNotEmpty) {
+        if (!station.connectors.any(
+          (connector) => chargingSpeeds.contains(connector.chargingSpeed),
+        )) {
+          return false;
+        }
+      }
+
       // Filtro por velocidad mínima
       if (minSpeed != null) {
         if (station.maxPowerKw < minSpeed.minPowerKw) {
+          return false;
+        }
+      }
+
+      if (minPowerKw != null) {
+        if (!station.connectors.any(
+          (connector) => connector.powerKw >= minPowerKw,
+        )) {
+          return false;
+        }
+      }
+
+      if (maxPowerKw != null) {
+        if (!station.connectors.any(
+          (connector) => connector.powerKw <= maxPowerKw,
+        )) {
           return false;
         }
       }
@@ -208,6 +251,10 @@ class ChargingStationsRepository {
         }
       }
 
+      if (onlyOpenNow == true && !station.isOpen) {
+        return false;
+      }
+
       // Filtro por distancia máxima
       if (maxDistanceKm != null && station.distanceKm != null) {
         if (station.distanceKm! > maxDistanceKm) {
@@ -224,6 +271,114 @@ class ChargingStationsRepository {
 
       return true;
     }).toList();
+
+    _sortStations(filtered, sortBy);
+    return filtered;
+  }
+
+  bool _matchesSearchQuery(ChargingStation station, String query) {
+    final normalizedQuery = _normalizeForSearch(query);
+    if (normalizedQuery.isEmpty) return true;
+
+    final tokens = normalizedQuery
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList();
+    if (tokens.isEmpty) return true;
+
+    final searchTerms = <String>[
+      station.name,
+      station.address,
+      station.city,
+      station.country,
+      if (station.state != null) station.state!,
+      if (station.description != null) station.description!,
+      if (station.networkName != null) station.networkName!,
+      station.status.displayName,
+      station.status.apiValue,
+      station.paymentType.displayName,
+      station.paymentType.apiValue,
+      if (station.isFree) 'gratis free sin costo',
+      if (station.hasAvailableConnectors) 'disponible available',
+      if (station.hasDcCharging) 'dc carga rapida carga rápida fast',
+      if (station.hasAcCharging) 'ac carga normal lenta',
+      if (station.amenities != null) ...station.amenities!,
+      ...station.connectors.expand(
+        (connector) => [
+          connector.type.displayName,
+          connector.type.apiValue,
+          connector.type.name,
+          connector.chargingType.displayName,
+          connector.chargingType.apiValue,
+          connector.chargingType.name,
+          connector.chargingSpeed.displayName,
+          connector.chargingSpeed.apiValue,
+          connector.chargingSpeed.name,
+          connector.status.displayName,
+          connector.status.apiValue,
+          '${connector.powerKw.toStringAsFixed(connector.powerKw.truncateToDouble() == connector.powerKw ? 0 : 1)} kw',
+          '${connector.powerKw.toInt()} kw',
+        ],
+      ),
+    ];
+
+    final haystack = _normalizeForSearch(searchTerms.join(' '));
+    return tokens.every(haystack.contains);
+  }
+
+  String _normalizeForSearch(String value) {
+    const replacements = {
+      'á': 'a',
+      'é': 'e',
+      'í': 'i',
+      'ó': 'o',
+      'ú': 'u',
+      'ü': 'u',
+      'ñ': 'n',
+    };
+
+    var normalized = value.toLowerCase();
+    replacements.forEach((source, target) {
+      normalized = normalized.replaceAll(source, target);
+    });
+    return normalized;
+  }
+
+  void _sortStations(List<ChargingStation> stations, SortOption sortBy) {
+    switch (sortBy) {
+      case SortOption.distance:
+        stations.sort(
+          (a, b) => (a.distanceKm ?? double.infinity).compareTo(
+            b.distanceKm ?? double.infinity,
+          ),
+        );
+        break;
+      case SortOption.rating:
+        stations.sort((a, b) => (b.rating ?? 0).compareTo(a.rating ?? 0));
+        break;
+      case SortOption.power:
+        stations.sort((a, b) => b.maxPowerKw.compareTo(a.maxPowerKw));
+        break;
+      case SortOption.availability:
+        stations.sort(
+          (a, b) =>
+              b.availableConnectorCount.compareTo(a.availableConnectorCount),
+        );
+        break;
+      case SortOption.price:
+        stations.sort(
+          (a, b) => _lowestPricePerKwh(a).compareTo(_lowestPricePerKwh(b)),
+        );
+        break;
+    }
+  }
+
+  double _lowestPricePerKwh(ChargingStation station) {
+    final prices = station.connectors
+        .map((connector) => connector.pricePerKwh ?? 0)
+        .toList();
+    if (prices.isEmpty) return double.infinity;
+    return prices.reduce(math.min);
   }
 
   /// Verifica si el cache es válido para usar
@@ -239,7 +394,7 @@ class ChargingStationsRepository {
     // Verificar si la ubicación es similar
     final latDiff = (latitude - _lastLatitude!).abs();
     final lngDiff = (longitude - _lastLongitude!).abs();
-    
+
     return latDiff < _locationThreshold && lngDiff < _locationThreshold;
   }
 
@@ -275,14 +430,17 @@ class ChargingStationsRepository {
   ) {
     return stations.map((station) {
       final newDistance = _calculateDistance(
-        userLat, userLng,
-        station.latitude, station.longitude,
+        userLat,
+        userLng,
+        station.latitude,
+        station.longitude,
       );
       return station.copyWith(distanceKm: newDistance);
-    }).toList()
-      ..sort((a, b) => 
-          (a.distanceKm ?? double.infinity)
-              .compareTo(b.distanceKm ?? double.infinity));
+    }).toList()..sort(
+      (a, b) => (a.distanceKm ?? double.infinity).compareTo(
+        b.distanceKm ?? double.infinity,
+      ),
+    );
   }
 
   /// Recalcula distancias de estaciones existentes con nueva ubicación
@@ -296,18 +454,26 @@ class ChargingStationsRepository {
   }
 
   /// Calcula distancia entre dos puntos usando Haversine
-  double _calculateDistance(double lat1, double lng1, double lat2, double lng2) {
+  double _calculateDistance(
+    double lat1,
+    double lng1,
+    double lat2,
+    double lng2,
+  ) {
     const double earthRadius = 6371; // km
-    
+
     final dLat = _toRadians(lat2 - lat1);
     final dLng = _toRadians(lng2 - lng1);
-    
-    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
-        math.cos(_toRadians(lat1)) * math.cos(_toRadians(lat2)) *
-        math.sin(dLng / 2) * math.sin(dLng / 2);
-    
+
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_toRadians(lat1)) *
+            math.cos(_toRadians(lat2)) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+
     final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
-    
+
     return earthRadius * c;
   }
 

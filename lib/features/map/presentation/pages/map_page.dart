@@ -5,6 +5,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../charging_stations/domain/models/charging_station.dart';
+import '../../../filters/domain/models/station_filters.dart';
+import '../../../filters/presentation/widgets/filter_sheet.dart';
 import '../../../charging_stations/data/repositories/charging_stations_repository.dart';
 import '../../../charging_stations/presentation/pages/station_detail_page.dart';
 import '../../../navigation_apps/presentation/widgets/navigation_options_sheet.dart';
@@ -24,25 +26,28 @@ class MapPage extends StatefulWidget {
 class _MapPageState extends State<MapPage> {
   // Controlador de Google Maps
   final Completer<GoogleMapController> _mapController = Completer();
-  
+  final TextEditingController _searchController = TextEditingController();
+
   // Repositorio de estaciones
   final ChargingStationsRepository _repository = ChargingStationsRepository();
-  
+
   // Servicio de ubicación compartido
   final LocationService _locationService = LocationService();
-  
+
   // Servicio de favoritos
   final FavoritesService _favoritesService = FavoritesService();
-  
+
   // Estado
   bool _isLoading = true;
-  bool _isSelectingLocation = false;  // Modo de selección de ubicación
+  bool _isSelectingLocation = false; // Modo de selección de ubicación
   String? _errorMessage;
+  List<ChargingStation> _allStations = [];
   List<ChargingStation> _stations = [];
   ChargingStation? _selectedStation;
   Set<Marker> _markers = {};
-  LatLng? _userLocation;  // Ubicación seleccionada manualmente
-  
+  LatLng? _userLocation; // Ubicación seleccionada manualmente
+  StationFilters _filters = const StationFilters();
+
   // Posición inicial: Medellín, Colombia
   static const CameraPosition _initialPosition = CameraPosition(
     target: LatLng(6.2442, -75.5812),
@@ -62,6 +67,7 @@ class _MapPageState extends State<MapPage> {
   void dispose() {
     _locationService.removeListener(_onLocationChanged);
     _favoritesService.removeListener(_onFavoritesChanged);
+    _searchController.dispose();
     _repository.dispose();
     super.dispose();
   }
@@ -91,7 +97,7 @@ class _MapPageState extends State<MapPage> {
   /// Obtiene la ubicación actual del usuario usando el servicio compartido
   Future<void> _getCurrentLocation() async {
     final success = await _locationService.getCurrentLocation();
-    
+
     if (success && mounted) {
       setState(() {
         _userLocation = LatLng(
@@ -105,7 +111,10 @@ class _MapPageState extends State<MapPage> {
       await controller.animateCamera(
         CameraUpdate.newCameraPosition(
           CameraPosition(
-            target: LatLng(_locationService.latitude, _locationService.longitude),
+            target: LatLng(
+              _locationService.latitude,
+              _locationService.longitude,
+            ),
             zoom: 14.0,
           ),
         ),
@@ -144,17 +153,14 @@ class _MapPageState extends State<MapPage> {
         longitude: _locationService.longitude,
         radiusKm: 30,
       );
-      
+
       if (mounted) {
-        // Crear marcadores personalizados de forma asíncrona
-        final markers = await _createMarkersAsync(stations);
-        
         setState(() {
-          _stations = stations;
-          _markers = markers;
+          _allStations = stations;
           _isLoading = false;
         });
-        
+        await _applyFilters();
+
         if (stations.isEmpty) {
           _showMessage('No se encontraron estaciones en esta zona');
         } else {
@@ -175,10 +181,7 @@ class _MapPageState extends State<MapPage> {
 
   void _showMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 2),
-      ),
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
   }
 
@@ -189,22 +192,71 @@ class _MapPageState extends State<MapPage> {
     await _loadStations();
   }
 
+  bool get _hasActiveFilters =>
+      _filters.copyWith(searchQuery: '').hasActiveFilters;
+
+  Future<void> _applyFilters() async {
+    final filteredStations = _repository.filterStations(
+      _allStations,
+      query: _filters.searchQuery,
+      city: _filters.city,
+      connectorTypes: _filters.connectorTypes.isNotEmpty
+          ? _filters.connectorTypes
+          : null,
+      chargingTypes: _filters.chargingTypes.isNotEmpty
+          ? _filters.chargingTypes
+          : null,
+      chargingSpeeds: _filters.chargingSpeeds.isNotEmpty
+          ? _filters.chargingSpeeds
+          : null,
+      minPowerKw: _filters.minPowerKw,
+      maxPowerKw: _filters.maxPowerKw,
+      onlyAvailable: _filters.isAvailable,
+      onlyFree: _filters.isFree,
+      onlyOpenNow: _filters.isOpenNow,
+      maxDistanceKm: _filters.maxDistanceKm,
+      sortBy: _filters.sortBy,
+    );
+
+    final markers = await _createMarkersAsync(filteredStations);
+    if (!mounted) return;
+
+    setState(() {
+      _stations = filteredStations;
+      _markers = markers;
+      if (_selectedStation != null &&
+          !_stations.any((station) => station.id == _selectedStation!.id)) {
+        _selectedStation = null;
+      }
+    });
+  }
+
+  Future<void> _updateSearchQuery(String value) async {
+    final query = value.trim();
+    _filters = _filters.copyWith(searchQuery: query.isEmpty ? '' : query);
+    await _applyFilters();
+  }
+
   /// Combina los marcadores de estaciones con el marcador de ubicación del usuario
   Set<Marker> get _allMarkers {
     final markers = Set<Marker>.from(_markers);
-    
+
     // Agregar marcador de ubicación del usuario si existe
     if (_userLocation != null) {
-      markers.add(Marker(
-        markerId: const MarkerId('user_location'),
-        position: _userLocation!,
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        anchor: const Offset(0.5, 0.5),
-        infoWindow: const InfoWindow(title: 'Mi ubicación'),
-        zIndexInt: 999, // Siempre encima de otros marcadores
-      ));
+      markers.add(
+        Marker(
+          markerId: const MarkerId('user_location'),
+          position: _userLocation!,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
+          anchor: const Offset(0.5, 0.5),
+          infoWindow: const InfoWindow(title: 'Mi ubicación'),
+          zIndexInt: 999, // Siempre encima de otros marcadores
+        ),
+      );
     }
-    
+
     return markers;
   }
 
@@ -240,14 +292,14 @@ class _MapPageState extends State<MapPage> {
       longitude: position.longitude,
       label: 'Ubicación seleccionada',
     );
-    
+
     setState(() {
       _userLocation = position;
       _isSelectingLocation = false;
     });
-    
+
     _showMessage('Ubicación actualizada. Cargando estaciones cercanas...');
-    
+
     // Recargar estaciones desde la nueva ubicación
     await _loadStations();
   }
@@ -292,25 +344,30 @@ class _MapPageState extends State<MapPage> {
   }
 
   /// Crea los marcadores personalizados para el mapa (asíncrono)
-  Future<Set<Marker>> _createMarkersAsync(List<ChargingStation> stations) async {
+  Future<Set<Marker>> _createMarkersAsync(
+    List<ChargingStation> stations,
+  ) async {
     final markers = <Marker>{};
-    
+
     for (final station in stations) {
       final icon = await MarkerGenerator.generateStationMarker(station);
-      
-      markers.add(Marker(
-        markerId: MarkerId(station.id),
-        position: LatLng(station.latitude, station.longitude),
-        icon: icon,
-        anchor: const Offset(0.5, 1.0),
-        infoWindow: InfoWindow(
-          title: station.name,
-          snippet: '${station.availabilityText} • ${station.maxPowerKw.toInt()} kW',
+
+      markers.add(
+        Marker(
+          markerId: MarkerId(station.id),
+          position: LatLng(station.latitude, station.longitude),
+          icon: icon,
+          anchor: const Offset(0.5, 1.0),
+          infoWindow: InfoWindow(
+            title: station.name,
+            snippet:
+                '${station.availabilityText} • ${station.maxPowerKw.toInt()} kW',
+          ),
+          onTap: () => _selectStation(station),
         ),
-        onTap: () => _selectStation(station),
-      ));
+      );
     }
-    
+
     return markers;
   }
 
@@ -387,7 +444,9 @@ class _MapPageState extends State<MapPage> {
                 // Botón de ubicación actual
                 FloatingActionButton(
                   heroTag: 'location',
-                  onPressed: _locationService.isLocating ? null : _centerOnUserLocation,
+                  onPressed: _locationService.isLocating
+                      ? null
+                      : _centerOnUserLocation,
                   child: _locationService.isLocating
                       ? const SizedBox(
                           width: 24,
@@ -404,10 +463,14 @@ class _MapPageState extends State<MapPage> {
                 FloatingActionButton.small(
                   heroTag: 'select_location',
                   onPressed: _toggleLocationSelection,
-                  backgroundColor: _isSelectingLocation ? AppColors.primary : Colors.white,
+                  backgroundColor: _isSelectingLocation
+                      ? AppColors.primary
+                      : Colors.white,
                   child: Icon(
                     Icons.add_location_alt,
-                    color: _isSelectingLocation ? Colors.white : AppColors.primary,
+                    color: _isSelectingLocation
+                        ? Colors.white
+                        : AppColors.primary,
                   ),
                 ),
               ],
@@ -428,9 +491,15 @@ class _MapPageState extends State<MapPage> {
                         if (_isLoading) ...[
                           const CircularProgressIndicator(),
                           const SizedBox(height: 16),
-                          const Text('Cargando estaciones de Open Charge Map...'),
+                          const Text(
+                            'Cargando estaciones de Open Charge Map...',
+                          ),
                         ] else if (_errorMessage != null) ...[
-                          const Icon(Icons.error_outline, size: 48, color: Colors.red),
+                          const Icon(
+                            Icons.error_outline,
+                            size: 48,
+                            color: Colors.red,
+                          ),
                           const SizedBox(height: 16),
                           Text(_errorMessage!),
                           const SizedBox(height: 16),
@@ -464,14 +533,26 @@ class _MapPageState extends State<MapPage> {
         ],
       ),
       child: TextField(
+        controller: _searchController,
         decoration: InputDecoration(
-          hintText: 'Buscar estaciones cerca de...',
+          hintText: 'Buscar por nombre de estación...',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
+              if (_searchController.text.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    _searchController.clear();
+                    _updateSearchQuery('');
+                  },
+                ),
               IconButton(
-                icon: const Icon(Icons.filter_list),
+                icon: Badge(
+                  isLabelVisible: _hasActiveFilters,
+                  child: const Icon(Icons.filter_list),
+                ),
                 onPressed: _showFilters,
               ),
             ],
@@ -482,8 +563,8 @@ class _MapPageState extends State<MapPage> {
             vertical: 14,
           ),
         ),
-        onSubmitted: (value) {
-          // TODO: Implementar búsqueda
+        onChanged: (value) {
+          _updateSearchQuery(value);
         },
       ),
     );
@@ -561,10 +642,7 @@ class _MapPageState extends State<MapPage> {
                             Icons.electrical_services,
                             '${station.maxPowerKw.toInt()} kW',
                           ),
-                          _buildInfoChip(
-                            Icons.power,
-                            station.availabilityText,
-                          ),
+                          _buildInfoChip(Icons.power, station.availabilityText),
                           if (station.distanceKm != null)
                             _buildInfoChip(
                               Icons.navigation,
@@ -622,10 +700,7 @@ class _MapPageState extends State<MapPage> {
         children: [
           Icon(icon, size: 12, color: AppColors.textSecondary),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: const TextStyle(fontSize: 11),
-          ),
+          Text(label, style: const TextStyle(fontSize: 11)),
         ],
       ),
     );
@@ -639,9 +714,7 @@ class _MapPageState extends State<MapPage> {
     // Centrar mapa en la estación seleccionada
     final controller = await _mapController.future;
     controller.animateCamera(
-      CameraUpdate.newLatLng(
-        LatLng(station.latitude, station.longitude),
-      ),
+      CameraUpdate.newLatLng(LatLng(station.latitude, station.longitude)),
     );
   }
 
@@ -670,7 +743,7 @@ class _MapPageState extends State<MapPage> {
 
   void _toggleFavorite(ChargingStation station) async {
     final wasAdded = await _favoritesService.toggleFavorite(station);
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -688,22 +761,28 @@ class _MapPageState extends State<MapPage> {
   Future<void> _centerOnUserLocation() async {
     // Obtener ubicación usando el servicio compartido
     final success = await _locationService.getCurrentLocation();
-    
+
     if (success && mounted) {
       final controller = await _mapController.future;
       await controller.animateCamera(
         CameraUpdate.newCameraPosition(
           CameraPosition(
-            target: LatLng(_locationService.latitude, _locationService.longitude),
+            target: LatLng(
+              _locationService.latitude,
+              _locationService.longitude,
+            ),
             zoom: 15.0,
           ),
         ),
       );
-      
+
       setState(() {
-        _userLocation = LatLng(_locationService.latitude, _locationService.longitude);
+        _userLocation = LatLng(
+          _locationService.latitude,
+          _locationService.longitude,
+        );
       });
-      
+
       // Recargar estaciones con la nueva ubicación
       await _loadStations();
     } else {
@@ -712,9 +791,26 @@ class _MapPageState extends State<MapPage> {
   }
 
   void _showFilters() {
-    // TODO: Implementar filtros
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Filtros próximamente')),
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.85,
+          child: FilterSheet(
+            initialFilters: _filters,
+            onApply: (filters) async {
+              _filters = filters.copyWith(
+                searchQuery: _searchController.text.trim(),
+              );
+              await _applyFilters();
+            },
+          ),
+        ),
+      ),
     );
   }
 
@@ -750,8 +846,8 @@ class _MapPageState extends State<MapPage> {
                     Text(
                       'Estaciones cercanas',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const Spacer(),
                     Text(
@@ -773,7 +869,10 @@ class _MapPageState extends State<MapPage> {
                         backgroundColor: station.hasAvailableConnectors
                             ? AppColors.stationAvailable
                             : AppColors.stationOccupied,
-                        child: const Icon(Icons.ev_station, color: Colors.white),
+                        child: const Icon(
+                          Icons.ev_station,
+                          color: Colors.white,
+                        ),
                       ),
                       title: Text(station.name),
                       subtitle: Text(station.address),

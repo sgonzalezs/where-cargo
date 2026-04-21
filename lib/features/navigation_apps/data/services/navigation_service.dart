@@ -30,8 +30,14 @@ class NavigationService {
     required double destinationLat,
     required double destinationLng,
   }) async {
-    final url = 'https://waze.com/ul?ll=$destinationLat,$destinationLng&navigate=yes';
-    return _launchUrl(url);
+    // Try native Waze app first; fallback to web URL if not available.
+    final appUrl = 'waze://?ll=$destinationLat,$destinationLng&navigate=yes';
+    if (await _launchUrl(appUrl)) {
+      return true;
+    }
+
+    final webUrl = 'https://www.waze.com/ul?ll=$destinationLat,$destinationLng&navigate=yes';
+    return _launchUrl(webUrl);
   }
 
   /// Abre Apple Maps (solo iOS)

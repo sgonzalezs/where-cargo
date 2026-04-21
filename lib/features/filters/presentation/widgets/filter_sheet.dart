@@ -72,9 +72,9 @@ class _FilterSheetState extends State<FilterSheet> {
       children: [
         Text(
           'Filtros',
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
         ),
         if (_filters.hasActiveFilters)
           Container(
@@ -113,9 +113,9 @@ class _FilterSheetState extends State<FilterSheet> {
       children: [
         Text(
           'Ciudad',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Wrap(
@@ -149,9 +149,9 @@ class _FilterSheetState extends State<FilterSheet> {
       children: [
         Text(
           'Tipo de Conector',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Wrap(
@@ -164,7 +164,9 @@ class _FilterSheetState extends State<FilterSheet> {
               selected: isSelected,
               onSelected: (selected) {
                 setState(() {
-                  final newTypes = Set<ConnectorType>.from(_filters.connectorTypes);
+                  final newTypes = Set<ConnectorType>.from(
+                    _filters.connectorTypes,
+                  );
                   if (selected) {
                     newTypes.add(type);
                   } else {
@@ -188,9 +190,9 @@ class _FilterSheetState extends State<FilterSheet> {
       children: [
         Text(
           'Tipo de Carga',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Row(
@@ -204,7 +206,9 @@ class _FilterSheetState extends State<FilterSheet> {
                   selected: isSelected,
                   onSelected: (selected) {
                     setState(() {
-                      final newTypes = Set<ChargingType>.from(_filters.chargingTypes);
+                      final newTypes = Set<ChargingType>.from(
+                        _filters.chargingTypes,
+                      );
                       if (selected) {
                         newTypes.add(type);
                       } else {
@@ -228,9 +232,9 @@ class _FilterSheetState extends State<FilterSheet> {
       children: [
         Text(
           'Velocidad de Carga',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Wrap(
@@ -252,7 +256,9 @@ class _FilterSheetState extends State<FilterSheet> {
               selected: isSelected,
               onSelected: (selected) {
                 setState(() {
-                  final newSpeeds = Set<ChargingSpeed>.from(_filters.chargingSpeeds);
+                  final newSpeeds = Set<ChargingSpeed>.from(
+                    _filters.chargingSpeeds,
+                  );
                   if (selected) {
                     newSpeeds.add(speed);
                   } else {
@@ -274,9 +280,9 @@ class _FilterSheetState extends State<FilterSheet> {
       children: [
         Text(
           'Filtros Rápidos',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Wrap(
@@ -338,9 +344,9 @@ class _FilterSheetState extends State<FilterSheet> {
           children: [
             Text(
               'Distancia máxima',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
             ),
             const Spacer(),
             Text(
@@ -376,9 +382,9 @@ class _FilterSheetState extends State<FilterSheet> {
       children: [
         Text(
           'Ordenar por',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Wrap(
@@ -408,7 +414,7 @@ class _FilterSheetState extends State<FilterSheet> {
       children: [
         Expanded(
           child: OutlinedButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.maybePop(context),
             child: const Text('Cancelar'),
           ),
         ),
@@ -418,7 +424,7 @@ class _FilterSheetState extends State<FilterSheet> {
           child: ElevatedButton(
             onPressed: () {
               widget.onApply(_filters);
-              Navigator.pop(context);
+              Navigator.maybePop(context);
             },
             child: const Text('Aplicar filtros'),
           ),

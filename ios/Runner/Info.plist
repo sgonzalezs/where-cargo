@@ -45,6 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>waze</string>
+	</array>
 	<!-- Permisos de ubicación -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Where Cargo necesita acceder a tu ubicación para mostrarte las estaciones de carga cercanas.</string>

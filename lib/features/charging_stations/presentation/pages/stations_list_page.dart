@@ -5,6 +5,8 @@ import '../../domain/enums/charging_enums.dart';
 import '../../data/repositories/charging_stations_repository.dart';
 import '../widgets/station_card.dart';
 import 'station_detail_page.dart';
+import '../../../filters/domain/models/station_filters.dart';
+import '../../../filters/presentation/widgets/filter_sheet.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/location_service.dart';
 import '../../../../shared/services/favorites_service.dart';
@@ -22,17 +24,12 @@ class _StationsListPageState extends State<StationsListPage> {
   final ChargingStationsRepository _repository = ChargingStationsRepository();
   final LocationService _locationService = LocationService();
   final FavoritesService _favoritesService = FavoritesService();
-  
+
   bool _isLoading = false;
   List<ChargingStation> _allStations = [];
   List<ChargingStation> _filteredStations = [];
   String? _errorMessage;
-  
-  // Filtros activos
-  Set<ChargingType> _selectedChargingTypes = {};
-  ChargingSpeed? _minSpeed;
-  bool _onlyAvailable = false;
-  bool _onlyFree = false;
+  StationFilters _filters = const StationFilters();
 
   @override
   void initState() {
@@ -66,7 +63,7 @@ class _StationsListPageState extends State<StationsListPage> {
   Future<void> _recalculateDistancesAndReload() async {
     final lat = _locationService.latitude;
     final lng = _locationService.longitude;
-    
+
     if (_allStations.isNotEmpty) {
       final updatedStations = _repository.recalculateDistancesFrom(
         stations: _allStations,
@@ -91,17 +88,17 @@ class _StationsListPageState extends State<StationsListPage> {
     try {
       final lat = _locationService.latitude;
       final lng = _locationService.longitude;
-      
+
       final stations = await _repository.getNearbyStations(
         latitude: lat,
         longitude: lng,
         radiusKm: 30,
       );
-      
+
       if (mounted) {
         setState(() {
           _allStations = stations;
-          _applyFilters();
+          _filteredStations = _buildFilteredStations(stations: stations);
           _isLoading = false;
         });
       }
@@ -116,31 +113,35 @@ class _StationsListPageState extends State<StationsListPage> {
   }
 
   void _applyFilters() {
-    var filtered = List<ChargingStation>.from(_allStations);
-    
-    // Filtro de búsqueda por texto
-    final query = _searchController.text.toLowerCase().trim();
-    if (query.isNotEmpty) {
-      filtered = filtered.where((station) =>
-          station.name.toLowerCase().contains(query) ||
-          station.address.toLowerCase().contains(query) ||
-          (station.networkName?.toLowerCase().contains(query) ?? false) ||
-          station.city.toLowerCase().contains(query)
-      ).toList();
-    }
-    
-    // Aplicar filtros del repositorio
-    filtered = _repository.filterStations(
-      filtered,
-      chargingTypes: _selectedChargingTypes.isNotEmpty ? _selectedChargingTypes : null,
-      minSpeed: _minSpeed,
-      onlyAvailable: _onlyAvailable ? true : null,
-      onlyFree: _onlyFree ? true : null,
-    );
-    
     setState(() {
-      _filteredStations = filtered;
+      _filteredStations = _buildFilteredStations();
     });
+  }
+
+  List<ChargingStation> _buildFilteredStations({
+    List<ChargingStation>? stations,
+  }) {
+    return _repository.filterStations(
+      stations ?? _allStations,
+      query: _filters.searchQuery,
+      city: _filters.city,
+      connectorTypes: _filters.connectorTypes.isNotEmpty
+          ? _filters.connectorTypes
+          : null,
+      chargingTypes: _filters.chargingTypes.isNotEmpty
+          ? _filters.chargingTypes
+          : null,
+      chargingSpeeds: _filters.chargingSpeeds.isNotEmpty
+          ? _filters.chargingSpeeds
+          : null,
+      minPowerKw: _filters.minPowerKw,
+      maxPowerKw: _filters.maxPowerKw,
+      onlyAvailable: _filters.isAvailable,
+      onlyFree: _filters.isFree,
+      onlyOpenNow: _filters.isOpenNow,
+      maxDistanceKm: _filters.maxDistanceKm,
+      sortBy: _filters.sortBy,
+    );
   }
 
   @override
@@ -158,10 +159,12 @@ class _StationsListPageState extends State<StationsListPage> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : () {
-              _repository.clearCache();
-              _loadStations();
-            },
+            onPressed: _isLoading
+                ? null
+                : () {
+                    _repository.clearCache();
+                    _loadStations();
+                  },
           ),
         ],
       ),
@@ -170,9 +173,7 @@ class _StationsListPageState extends State<StationsListPage> {
           _buildLocationBar(),
           _buildSearchBar(),
           _buildActiveFiltersChips(),
-          Expanded(
-            child: _buildContent(),
-          ),
+          Expanded(child: _buildContent()),
         ],
       ),
     );
@@ -181,7 +182,7 @@ class _StationsListPageState extends State<StationsListPage> {
   Widget _buildLocationBar() {
     final isLocating = _locationService.isLocating;
     final locationLabel = _locationService.locationLabel;
-    
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: AppColors.primary.withAlpha(15),
@@ -205,7 +206,10 @@ class _StationsListPageState extends State<StationsListPage> {
                       SizedBox(width: 8),
                       Text(
                         'Obteniendo ubicación...',
-                        style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ],
                   )
@@ -249,12 +253,13 @@ class _StationsListPageState extends State<StationsListPage> {
       ),
     );
   }
-  
+
   bool get _hasActiveFilters =>
-      _selectedChargingTypes.isNotEmpty ||
-      _minSpeed != null ||
-      _onlyAvailable ||
-      _onlyFree;
+      _filters.copyWith(searchQuery: '').hasActiveFilters;
+
+  bool get _hasSearchQuery => _filters.searchQuery?.isNotEmpty == true;
+
+  bool get _hasSearchOrFilters => _hasSearchQuery || _hasActiveFilters;
 
   Widget _buildSearchBar() {
     return Container(
@@ -263,14 +268,14 @@ class _StationsListPageState extends State<StationsListPage> {
       child: TextField(
         controller: _searchController,
         decoration: InputDecoration(
-          hintText: 'Buscar por nombre, dirección o red...',
+          hintText: 'Buscar por nombre, conector, carga o red...',
           prefixIcon: const Icon(Icons.search),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
                   icon: const Icon(Icons.clear),
                   onPressed: () {
                     _searchController.clear();
-                    _applyFilters();
+                    _updateSearchQuery('');
                   },
                 )
               : null,
@@ -282,44 +287,79 @@ class _StationsListPageState extends State<StationsListPage> {
           ),
         ),
         onChanged: (value) {
-          _applyFilters();
+          _updateSearchQuery(value);
         },
       ),
     );
   }
 
+  void _updateSearchQuery(String value) {
+    final query = value.trim();
+    _filters = _filters.copyWith(searchQuery: query.isEmpty ? '' : query);
+    _applyFilters();
+  }
+
   Widget _buildActiveFiltersChips() {
-    if (!_hasActiveFilters) return const SizedBox.shrink();
-    
+    if (!_hasSearchOrFilters) return const SizedBox.shrink();
+
     return Container(
       height: 50,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
-          if (_onlyAvailable)
+          if (_hasSearchQuery)
+            _buildFilterChip('"${_filters.searchQuery}"', () {
+              _searchController.clear();
+              _updateSearchQuery('');
+            }),
+          if (_filters.isAvailable == true)
             _buildFilterChip('Disponibles', () {
-              setState(() => _onlyAvailable = false);
+              _filters = _filters.copyWith(clearIsAvailable: true);
               _applyFilters();
             }),
-          if (_onlyFree)
+          if (_filters.isFree == true)
             _buildFilterChip('Gratis', () {
-              setState(() => _onlyFree = false);
+              _filters = _filters.copyWith(clearIsFree: true);
               _applyFilters();
             }),
-          if (_selectedChargingTypes.contains(ChargingType.dc))
-            _buildFilterChip('Carga DC', () {
-              setState(() => _selectedChargingTypes.remove(ChargingType.dc));
+          if (_filters.isOpenNow == true)
+            _buildFilterChip('Abierto ahora', () {
+              _filters = _filters.copyWith(clearIsOpenNow: true);
               _applyFilters();
             }),
-          if (_selectedChargingTypes.contains(ChargingType.ac))
-            _buildFilterChip('Carga AC', () {
-              setState(() => _selectedChargingTypes.remove(ChargingType.ac));
+          if (_filters.city != null)
+            _buildFilterChip(_filters.city!, () {
+              _filters = _filters.copyWith(clearCity: true);
               _applyFilters();
             }),
-          if (_minSpeed != null)
-            _buildFilterChip(_minSpeed!.displayName, () {
-              setState(() => _minSpeed = null);
+          for (final chargingType in _filters.chargingTypes)
+            _buildFilterChip('Carga ${chargingType.displayName}', () {
+              final updatedTypes = Set<ChargingType>.from(
+                _filters.chargingTypes,
+              )..remove(chargingType);
+              _filters = _filters.copyWith(chargingTypes: updatedTypes);
+              _applyFilters();
+            }),
+          for (final connectorType in _filters.connectorTypes)
+            _buildFilterChip(connectorType.displayName, () {
+              final updatedTypes = Set<ConnectorType>.from(
+                _filters.connectorTypes,
+              )..remove(connectorType);
+              _filters = _filters.copyWith(connectorTypes: updatedTypes);
+              _applyFilters();
+            }),
+          for (final speed in _filters.chargingSpeeds)
+            _buildFilterChip(speed.displayName, () {
+              final updatedSpeeds = Set<ChargingSpeed>.from(
+                _filters.chargingSpeeds,
+              )..remove(speed);
+              _filters = _filters.copyWith(chargingSpeeds: updatedSpeeds);
+              _applyFilters();
+            }),
+          if (_filters.maxDistanceKm != null)
+            _buildFilterChip('Hasta ${_filters.maxDistanceKm!.toInt()} km', () {
+              _filters = _filters.copyWith(clearMaxDistance: true);
               _applyFilters();
             }),
           const SizedBox(width: 8),
@@ -347,13 +387,11 @@ class _StationsListPageState extends State<StationsListPage> {
   }
 
   void _clearAllFilters() {
+    _searchController.clear();
     setState(() {
-      _selectedChargingTypes.clear();
-      _minSpeed = null;
-      _onlyAvailable = false;
-      _onlyFree = false;
+      _filters = const StationFilters();
+      _filteredStations = _buildFilteredStations(stations: _allStations);
     });
-    _applyFilters();
   }
 
   Widget _buildContent() {
@@ -377,11 +415,7 @@ class _StationsListPageState extends State<StationsListPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.error_outline,
-                size: 64,
-                color: AppColors.error,
-              ),
+              const Icon(Icons.error_outline, size: 64, color: AppColors.error),
               const SizedBox(height: 16),
               Text(
                 _errorMessage!,
@@ -412,7 +446,7 @@ class _StationsListPageState extends State<StationsListPage> {
             ),
             const SizedBox(height: 16),
             Text(
-              _searchController.text.isNotEmpty || _hasActiveFilters
+              _hasSearchOrFilters
                   ? 'No se encontraron estaciones con estos filtros'
                   : 'No se encontraron estaciones',
               style: const TextStyle(color: AppColors.textSecondary),
@@ -503,7 +537,7 @@ class _StationsListPageState extends State<StationsListPage> {
 
   void _toggleFavorite(ChargingStation station) async {
     final wasAdded = await _favoritesService.toggleFavorite(station);
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -525,218 +559,21 @@ class _StationsListPageState extends State<StationsListPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => _FiltersSheet(
-        selectedChargingTypes: _selectedChargingTypes,
-        minSpeed: _minSpeed,
-        onlyAvailable: _onlyAvailable,
-        onlyFree: _onlyFree,
-        availableNetworks: _repository.getAvailableNetworks(),
-        onApply: (chargingTypes, minSpeed, onlyAvailable, onlyFree) {
-          setState(() {
-            _selectedChargingTypes = chargingTypes;
-            _minSpeed = minSpeed;
-            _onlyAvailable = onlyAvailable;
-            _onlyFree = onlyFree;
-          });
-          _applyFilters();
-          Navigator.pop(context);
-        },
-      ),
-    );
-  }
-}
-
-/// Bottom sheet de filtros
-class _FiltersSheet extends StatefulWidget {
-  final Set<ChargingType> selectedChargingTypes;
-  final ChargingSpeed? minSpeed;
-  final bool onlyAvailable;
-  final bool onlyFree;
-  final Set<String> availableNetworks;
-  final Function(Set<ChargingType>, ChargingSpeed?, bool, bool) onApply;
-
-  const _FiltersSheet({
-    required this.selectedChargingTypes,
-    required this.minSpeed,
-    required this.onlyAvailable,
-    required this.onlyFree,
-    required this.availableNetworks,
-    required this.onApply,
-  });
-
-  @override
-  State<_FiltersSheet> createState() => _FiltersSheetState();
-}
-
-class _FiltersSheetState extends State<_FiltersSheet> {
-  late Set<ChargingType> _chargingTypes;
-  ChargingSpeed? _minSpeed;
-  late bool _onlyAvailable;
-  late bool _onlyFree;
-
-  @override
-  void initState() {
-    super.initState();
-    _chargingTypes = Set.from(widget.selectedChargingTypes);
-    _minSpeed = widget.minSpeed;
-    _onlyAvailable = widget.onlyAvailable;
-    _onlyFree = widget.onlyFree;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          
-          // Header
-          Row(
-            children: [
-              Text(
-                'Filtros',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const Spacer(),
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _chargingTypes.clear();
-                    _minSpeed = null;
-                    _onlyAvailable = false;
-                    _onlyFree = false;
-                  });
-                },
-                child: const Text('Limpiar'),
-              ),
-            ],
-          ),
-          const Divider(),
-          
-          // Disponibilidad
-          const SizedBox(height: 8),
-          const Text('Disponibilidad', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              FilterChip(
-                label: const Text('Solo disponibles'),
-                selected: _onlyAvailable,
-                onSelected: (value) => setState(() => _onlyAvailable = value),
-              ),
-              const SizedBox(width: 8),
-              FilterChip(
-                label: const Text('Solo gratis'),
-                selected: _onlyFree,
-                onSelected: (value) => setState(() => _onlyFree = value),
-              ),
-            ],
-          ),
-          
-          // Tipo de carga
-          const SizedBox(height: 16),
-          const Text('Tipo de carga', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              FilterChip(
-                label: const Text('DC (Rápida)'),
-                selected: _chargingTypes.contains(ChargingType.dc),
-                onSelected: (value) {
-                  setState(() {
-                    if (value) {
-                      _chargingTypes.add(ChargingType.dc);
-                    } else {
-                      _chargingTypes.remove(ChargingType.dc);
-                    }
-                  });
-                },
-              ),
-              const SizedBox(width: 8),
-              FilterChip(
-                label: const Text('AC (Normal)'),
-                selected: _chargingTypes.contains(ChargingType.ac),
-                onSelected: (value) {
-                  setState(() {
-                    if (value) {
-                      _chargingTypes.add(ChargingType.ac);
-                    } else {
-                      _chargingTypes.remove(ChargingType.ac);
-                    }
-                  });
-                },
-              ),
-            ],
-          ),
-          
-          // Velocidad mínima
-          const SizedBox(height: 16),
-          const Text('Velocidad mínima', style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: ChargingSpeed.values.map((speed) {
-              return ChoiceChip(
-                label: Text(speed.displayName),
-                selected: _minSpeed == speed,
-                onSelected: (value) {
-                  setState(() => _minSpeed = value ? speed : null);
-                },
-              );
-            }).toList(),
-          ),
-          
-          // Redes disponibles
-          if (widget.availableNetworks.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            Text(
-              'Redes disponibles: ${widget.availableNetworks.length}',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: widget.availableNetworks.take(6).map((network) {
-                return Chip(
-                  label: Text(network, style: const TextStyle(fontSize: 12)),
-                  visualDensity: VisualDensity.compact,
+      builder: (context) => SafeArea(
+        child: FractionallySizedBox(
+          heightFactor: 0.85,
+          child: FilterSheet(
+            initialFilters: _filters,
+            onApply: (filters) {
+              setState(() {
+                _filters = filters.copyWith(
+                  searchQuery: _searchController.text.trim(),
                 );
-              }).toList(),
-            ),
-          ],
-          
-          const SizedBox(height: 24),
-          
-          // Botón aplicar
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () {
-                widget.onApply(_chargingTypes, _minSpeed, _onlyAvailable, _onlyFree);
-              },
-              child: const Text('Aplicar filtros'),
-            ),
+                _filteredStations = _buildFilteredStations();
+              });
+            },
           ),
-          
-          SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
-        ],
+        ),
       ),
     );
   }
@@ -784,13 +621,13 @@ class _LocationOptionsSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
-          
+
           // Header
           Text(
             'Seleccionar ubicación',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -798,7 +635,7 @@ class _LocationOptionsSheet extends StatelessWidget {
             style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
           ),
           const Divider(height: 24),
-          
+
           // Usar ubicación actual
           ListTile(
             leading: Container(
@@ -814,14 +651,14 @@ class _LocationOptionsSheet extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: onUseCurrentLocation,
           ),
-          
+
           const Divider(height: 24),
           const Text(
             'O selecciona una ciudad:',
             style: TextStyle(fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 8),
-          
+
           // Lista de ciudades
           SizedBox(
             height: 200,
@@ -830,7 +667,10 @@ class _LocationOptionsSheet extends StatelessWidget {
               itemBuilder: (context, index) {
                 final city = _cities[index];
                 return ListTile(
-                  leading: const Icon(Icons.location_city, color: AppColors.textSecondary),
+                  leading: const Icon(
+                    Icons.location_city,
+                    color: AppColors.textSecondary,
+                  ),
                   title: Text(city['name'] as String),
                   dense: true,
                   onTap: () => onSelectCity(
@@ -842,7 +682,7 @@ class _LocationOptionsSheet extends StatelessWidget {
               },
             ),
           ),
-          
+
           SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
         ],
       ),
