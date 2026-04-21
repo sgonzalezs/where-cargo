@@ -124,7 +124,6 @@ class _StationsListPageState extends State<StationsListPage> {
     return _repository.filterStations(
       stations ?? _allStations,
       query: _filters.searchQuery,
-      city: _filters.city,
       connectorTypes: _filters.connectorTypes.isNotEmpty
           ? _filters.connectorTypes
           : null,
@@ -326,11 +325,6 @@ class _StationsListPageState extends State<StationsListPage> {
           if (_filters.isOpenNow == true)
             _buildFilterChip('Abierto ahora', () {
               _filters = _filters.copyWith(clearIsOpenNow: true);
-              _applyFilters();
-            }),
-          if (_filters.city != null)
-            _buildFilterChip(_filters.city!, () {
-              _filters = _filters.copyWith(clearCity: true);
               _applyFilters();
             }),
           for (final chargingType in _filters.chargingTypes)

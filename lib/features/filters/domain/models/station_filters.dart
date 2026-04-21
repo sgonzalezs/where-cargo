@@ -3,7 +3,6 @@ import '../../../charging_stations/domain/enums/charging_enums.dart';
 /// Modelo de filtros para búsqueda de estaciones
 class StationFilters {
   final String? searchQuery;
-  final String? city;
   final Set<ConnectorType> connectorTypes;
   final Set<ChargingType> chargingTypes;
   final Set<ChargingSpeed> chargingSpeeds;
@@ -17,7 +16,6 @@ class StationFilters {
 
   const StationFilters({
     this.searchQuery,
-    this.city,
     this.connectorTypes = const {},
     this.chargingTypes = const {},
     this.chargingSpeeds = const {},
@@ -32,7 +30,6 @@ class StationFilters {
 
   bool get hasActiveFilters =>
       searchQuery?.isNotEmpty == true ||
-      city != null ||
       connectorTypes.isNotEmpty ||
       chargingTypes.isNotEmpty ||
       chargingSpeeds.isNotEmpty ||
@@ -46,7 +43,6 @@ class StationFilters {
   int get activeFilterCount {
     int count = 0;
     if (searchQuery?.isNotEmpty == true) count++;
-    if (city != null) count++;
     count += connectorTypes.length;
     count += chargingTypes.length;
     count += chargingSpeeds.length;
@@ -60,7 +56,6 @@ class StationFilters {
 
   StationFilters copyWith({
     String? searchQuery,
-    String? city,
     Set<ConnectorType>? connectorTypes,
     Set<ChargingType>? chargingTypes,
     Set<ChargingSpeed>? chargingSpeeds,
@@ -71,7 +66,6 @@ class StationFilters {
     bool? isOpenNow,
     double? maxDistanceKm,
     SortOption? sortBy,
-    bool clearCity = false,
     bool clearMinPower = false,
     bool clearMaxPower = false,
     bool clearIsFree = false,
@@ -81,7 +75,6 @@ class StationFilters {
   }) {
     return StationFilters(
       searchQuery: searchQuery ?? this.searchQuery,
-      city: clearCity ? null : (city ?? this.city),
       connectorTypes: connectorTypes ?? this.connectorTypes,
       chargingTypes: chargingTypes ?? this.chargingTypes,
       chargingSpeeds: chargingSpeeds ?? this.chargingSpeeds,
@@ -90,7 +83,9 @@ class StationFilters {
       isFree: clearIsFree ? null : (isFree ?? this.isFree),
       isAvailable: clearIsAvailable ? null : (isAvailable ?? this.isAvailable),
       isOpenNow: clearIsOpenNow ? null : (isOpenNow ?? this.isOpenNow),
-      maxDistanceKm: clearMaxDistance ? null : (maxDistanceKm ?? this.maxDistanceKm),
+      maxDistanceKm: clearMaxDistance
+          ? null
+          : (maxDistanceKm ?? this.maxDistanceKm),
       sortBy: sortBy ?? this.sortBy,
     );
   }
@@ -104,9 +99,10 @@ class StationFilters {
     final params = <String, dynamic>{};
 
     if (searchQuery?.isNotEmpty == true) params['q'] = searchQuery;
-    if (city != null) params['city'] = city;
     if (connectorTypes.isNotEmpty) {
-      params['connector_types'] = connectorTypes.map((t) => t.apiValue).join(',');
+      params['connector_types'] = connectorTypes
+          .map((t) => t.apiValue)
+          .join(',');
     }
     if (chargingTypes.isNotEmpty) {
       params['charging_types'] = chargingTypes.map((t) => t.apiValue).join(',');

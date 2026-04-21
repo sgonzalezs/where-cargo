@@ -43,8 +43,6 @@ class _FilterSheetState extends State<FilterSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildCityFilter(context),
-                  const SizedBox(height: 20),
                   _buildConnectorTypesFilter(context),
                   const SizedBox(height: 20),
                   _buildChargingTypeFilter(context),
@@ -103,42 +101,6 @@ class _FilterSheetState extends State<FilterSheet> {
             },
             child: const Text('Limpiar todo'),
           ),
-      ],
-    );
-  }
-
-  Widget _buildCityFilter(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Ciudad',
-          style: Theme.of(
-            context,
-          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: ColombianCity.values.map((city) {
-            final isSelected = _filters.city == city.displayName;
-            return FilterChip(
-              label: Text(city.displayName),
-              selected: isSelected,
-              onSelected: (selected) {
-                setState(() {
-                  _filters = _filters.copyWith(
-                    city: selected ? city.displayName : null,
-                    clearCity: !selected,
-                  );
-                });
-              },
-              selectedColor: AppColors.primary.withOpacity(0.2),
-              checkmarkColor: AppColors.primary,
-            );
-          }).toList(),
-        ),
       ],
     );
   }

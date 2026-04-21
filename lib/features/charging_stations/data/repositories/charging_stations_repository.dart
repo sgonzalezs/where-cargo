@@ -165,7 +165,6 @@ class ChargingStationsRepository {
   List<ChargingStation> filterStations(
     List<ChargingStation> stations, {
     String? query,
-    String? city,
     Set<ConnectorType>? connectorTypes,
     Set<ChargingType>? chargingTypes,
     Set<ChargingSpeed>? chargingSpeeds,
@@ -182,12 +181,6 @@ class ChargingStationsRepository {
     final filtered = stations.where((station) {
       if (query != null && query.trim().isNotEmpty) {
         if (!_matchesSearchQuery(station, query)) {
-          return false;
-        }
-      }
-
-      if (city != null && city.trim().isNotEmpty) {
-        if (_normalizeForSearch(station.city) != _normalizeForSearch(city)) {
           return false;
         }
       }

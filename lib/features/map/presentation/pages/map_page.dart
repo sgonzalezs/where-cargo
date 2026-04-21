@@ -199,7 +199,6 @@ class _MapPageState extends State<MapPage> {
     final filteredStations = _repository.filterStations(
       _allStations,
       query: _filters.searchQuery,
-      city: _filters.city,
       connectorTypes: _filters.connectorTypes.isNotEmpty
           ? _filters.connectorTypes
           : null,
