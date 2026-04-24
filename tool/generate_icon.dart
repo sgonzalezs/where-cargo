@@ -62,9 +62,16 @@ void main() async {
   print('✅ Icono principal guardado: assets/app_icon.png');
   
   // Crear versión foreground para adaptive icon (solo el icono sin fondo)
-  final foreground = img.Image(width: 1024, height: 1024);
-  
-  // Fondo transparente ya es el default
+  // numChannels: 4 => RGBA con fondo realmente transparente (alpha=0)
+  final foreground = img.Image(width: 1024, height: 1024, numChannels: 4);
+
+  // Asegurar que todos los pixeles inicien completamente transparentes
+  final transparent = img.ColorRgba8(0, 0, 0, 0);
+  for (int y = 0; y < foreground.height; y++) {
+    for (int x = 0; x < foreground.width; x++) {
+      foreground.setPixel(x, y, transparent);
+    }
+  }
   // Copiar solo la estación sin el fondo
   _fillRoundedRect(foreground, 340, 220, 344, 480, 40, white);
   _fillRoundedRect(foreground, 380, 260, 264, 160, 15, img.ColorRgba8(232, 245, 233, 255));
