@@ -10,6 +10,7 @@ class StationCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onFavoriteTap;
   final bool isFavorite;
+  final bool compatibleWithVehicle;
 
   const StationCard({
     super.key,
@@ -17,6 +18,7 @@ class StationCard extends StatelessWidget {
     this.onTap,
     this.onFavoriteTap,
     this.isFavorite = false,
+    this.compatibleWithVehicle = false,
   });
 
   @override
@@ -176,6 +178,13 @@ class StationCard extends StatelessWidget {
       spacing: 8,
       runSpacing: 8,
       children: [
+        if (compatibleWithVehicle)
+          _buildInfoChip(
+            context,
+            icon: Icons.star,
+            label: 'Compatible con tu vehículo',
+            color: const Color(0xFFFFB300),
+          ),
         _buildInfoChip(
           context,
           icon: Icons.electrical_services,

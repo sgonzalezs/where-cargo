@@ -13,6 +13,7 @@ import '../../../navigation_apps/presentation/widgets/navigation_options_sheet.d
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/location_service.dart';
 import '../../../../shared/services/favorites_service.dart';
+import '../../../../shared/services/vehicle_service.dart';
 import '../widgets/marker_generator.dart';
 
 /// Página del mapa con estaciones de carga
@@ -37,6 +38,9 @@ class _MapPageState extends State<MapPage> {
   // Servicio de favoritos
   final FavoritesService _favoritesService = FavoritesService();
 
+  // Servicio de vehículos
+  final VehicleService _vehicleService = VehicleService();
+
   // Estado
   bool _isLoading = true;
   bool _isSelectingLocation = false; // Modo de selección de ubicación
@@ -60,6 +64,8 @@ class _MapPageState extends State<MapPage> {
     _locationService.addListener(_onLocationChanged);
     _favoritesService.addListener(_onFavoritesChanged);
     _favoritesService.loadFavorites();
+    _vehicleService.addListener(_onVehicleChanged);
+    _vehicleService.loadVehicles();
     _initializeMap();
   }
 
@@ -67,6 +73,7 @@ class _MapPageState extends State<MapPage> {
   void dispose() {
     _locationService.removeListener(_onLocationChanged);
     _favoritesService.removeListener(_onFavoritesChanged);
+    _vehicleService.removeListener(_onVehicleChanged);
     _searchController.dispose();
     _repository.dispose();
     super.dispose();
@@ -74,6 +81,14 @@ class _MapPageState extends State<MapPage> {
 
   void _onFavoritesChanged() {
     if (mounted) setState(() {});
+  }
+
+  // Cuando el vehículo cambia, regenerar marcadores para reflejar compatibilidad
+  void _onVehicleChanged() {
+    if (mounted) {
+      MarkerGenerator.clearCache();
+      _applyFilters();
+    }
   }
 
   void _onLocationChanged() {
@@ -347,9 +362,13 @@ class _MapPageState extends State<MapPage> {
     List<ChargingStation> stations,
   ) async {
     final markers = <Marker>{};
+    final vehicleConnectors = _vehicleService.primaryVehicle?.compatibleConnectors;
 
     for (final station in stations) {
-      final icon = await MarkerGenerator.generateStationMarker(station);
+      final icon = await MarkerGenerator.generateStationMarker(
+        station,
+        vehicleConnectors: vehicleConnectors,
+      );
 
       markers.add(
         Marker(

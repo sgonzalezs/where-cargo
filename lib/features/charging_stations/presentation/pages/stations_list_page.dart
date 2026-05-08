@@ -10,6 +10,7 @@ import '../../../filters/presentation/widgets/filter_sheet.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/location_service.dart';
 import '../../../../shared/services/favorites_service.dart';
+import '../../../../shared/services/vehicle_service.dart';
 
 /// Página con lista de estaciones de carga
 class StationsListPage extends StatefulWidget {
@@ -24,6 +25,7 @@ class _StationsListPageState extends State<StationsListPage> {
   final ChargingStationsRepository _repository = ChargingStationsRepository();
   final LocationService _locationService = LocationService();
   final FavoritesService _favoritesService = FavoritesService();
+  final VehicleService _vehicleService = VehicleService();
 
   bool _isLoading = false;
   List<ChargingStation> _allStations = [];
@@ -37,6 +39,8 @@ class _StationsListPageState extends State<StationsListPage> {
     _locationService.addListener(_onLocationChanged);
     _favoritesService.addListener(_onFavoritesChanged);
     _favoritesService.loadFavorites();
+    _vehicleService.addListener(_onVehicleChanged);
+    _vehicleService.loadVehicles();
     _loadStations();
   }
 
@@ -44,12 +48,17 @@ class _StationsListPageState extends State<StationsListPage> {
   void dispose() {
     _locationService.removeListener(_onLocationChanged);
     _favoritesService.removeListener(_onFavoritesChanged);
+    _vehicleService.removeListener(_onVehicleChanged);
     _searchController.dispose();
     _repository.dispose();
     super.dispose();
   }
 
   void _onFavoritesChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onVehicleChanged() {
     if (mounted) setState(() {});
   }
 
@@ -511,6 +520,7 @@ class _StationsListPageState extends State<StationsListPage> {
                   onTap: () => _navigateToDetail(station),
                   onFavoriteTap: () => _toggleFavorite(station),
                   isFavorite: _favoritesService.isFavorite(station.id),
+                  compatibleWithVehicle: _isCompatibleWithVehicle(station),
                 );
               },
             ),
@@ -526,6 +536,16 @@ class _StationsListPageState extends State<StationsListPage> {
       MaterialPageRoute(
         builder: (context) => StationDetailPage(station: station),
       ),
+    );
+  }
+
+  /// Retorna true si la estación tiene al menos un conector compatible
+  /// con el vehículo principal registrado. Retorna false si no hay vehículo.
+  bool _isCompatibleWithVehicle(ChargingStation station) {
+    final vehicle = _vehicleService.primaryVehicle;
+    if (vehicle == null || vehicle.compatibleConnectors.isEmpty) return false;
+    return vehicle.compatibleConnectors.any(
+      (connId) => station.connectorTypes.any((type) => type.apiValue == connId),
     );
   }
 

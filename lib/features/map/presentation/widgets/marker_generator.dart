@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -19,9 +20,10 @@ class MarkerGenerator {
     required int availableConnectors,
     required int totalConnectors,
     required bool isAvailable,
+    bool isCompatibleWithVehicle = false,
   }) async {
     // Crear key para cache
-    final cacheKey = 'marker_${powerKw}_${availableConnectors}_${totalConnectors}_$isAvailable';
+    final cacheKey = 'marker_${powerKw}_${availableConnectors}_${totalConnectors}_${isAvailable}_$isCompatibleWithVehicle';
     
     // Retornar de cache si existe
     if (_cache.containsKey(cacheKey)) {
@@ -34,6 +36,7 @@ class MarkerGenerator {
       availableConnectors: availableConnectors,
       totalConnectors: totalConnectors,
       isAvailable: isAvailable,
+      isCompatibleWithVehicle: isCompatibleWithVehicle,
     );
     
     // Guardar en cache
@@ -42,13 +45,25 @@ class MarkerGenerator {
     return descriptor;
   }
 
-  /// Genera un marcador para una estación de carga
-  static Future<BitmapDescriptor> generateStationMarker(ChargingStation station) async {
+  /// Genera un marcador para una estación de carga.
+  /// Si se pasan [vehicleConnectors] (apiValues del vehículo del usuario),
+  /// se marca la estación con estrella dorada cuando es compatible.
+  static Future<BitmapDescriptor> generateStationMarker(
+    ChargingStation station, {
+    List<String>? vehicleConnectors,
+  }) async {
+    bool compatible = false;
+    if (vehicleConnectors != null && vehicleConnectors.isNotEmpty) {
+      compatible = vehicleConnectors.any(
+        (connId) => station.connectorTypes.any((type) => type.apiValue == connId),
+      );
+    }
     return generateMarker(
       powerKw: station.maxPowerKw.toInt(),
       availableConnectors: station.availableConnectorCount,
       totalConnectors: station.totalConnectorCount,
       isAvailable: station.hasAvailableConnectors,
+      isCompatibleWithVehicle: compatible,
     );
   }
 
@@ -64,6 +79,7 @@ class MarkerGenerator {
     required int availableConnectors,
     required int totalConnectors,
     required bool isAvailable,
+    bool isCompatibleWithVehicle = false,
   }) async {
     // Dibujamos a alta resolución para mantener nitidez
     const double scale = 2.5;
@@ -160,6 +176,34 @@ class MarkerGenerator {
     );
     canvas.drawParagraph(availParagraph, Offset(41 * scale, 19 * scale));
 
+    // Badge de compatibilidad con vehículo: estrella dorada en esquina superior derecha
+    if (isCompatibleWithVehicle) {
+      final badgeR = 9.5 * scale;
+      final badgeCx = width - badgeR;
+      final badgeCy = badgeR;
+
+      // Círculo blanco de fondo (borde)
+      canvas.drawCircle(
+        Offset(badgeCx, badgeCy),
+        badgeR,
+        Paint()..color = Colors.white,
+      );
+      // Relleno dorado
+      canvas.drawCircle(
+        Offset(badgeCx, badgeCy),
+        badgeR - 2 * scale,
+        Paint()..color = const Color(0xFFFFB300),
+      );
+      // Estrella blanca
+      _drawStar(
+        canvas,
+        badgeCx,
+        badgeCy,
+        (badgeR - 2 * scale) * 0.68,
+        Colors.white,
+      );
+    }
+
     // Convertir a imagen
     final picture = recorder.endRecording();
     final image = await picture.toImage(width.toInt(), height.toInt());
@@ -178,6 +222,36 @@ class MarkerGenerator {
       width: 72,
       height: 40,
     );
+  }
+
+  /// Dibuja una estrella de 5 puntas centrada en (cx, cy)
+  static void _drawStar(
+    Canvas canvas,
+    double cx,
+    double cy,
+    double outerRadius,
+    Color color,
+  ) {
+    const int points = 5;
+    final innerRadius = outerRadius * 0.42;
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path();
+    for (int i = 0; i < points * 2; i++) {
+      final radius = i.isEven ? outerRadius : innerRadius;
+      final angle = (i * pi / points) - (pi / 2);
+      final x = cx + radius * cos(angle);
+      final y = cy + radius * sin(angle);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    canvas.drawPath(path, paint);
   }
 
   /// Dibuja el ícono de rayo
