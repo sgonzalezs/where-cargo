@@ -21,9 +21,11 @@ class MarkerGenerator {
     required int totalConnectors,
     required bool isAvailable,
     bool isCompatibleWithVehicle = false,
+    bool hasCompleteData = true,
   }) async {
     // Crear key para cache
-    final cacheKey = 'marker_${powerKw}_${availableConnectors}_${totalConnectors}_${isAvailable}_$isCompatibleWithVehicle';
+    final cacheKey =
+        'marker_${powerKw}_${availableConnectors}_${totalConnectors}_${isAvailable}_${isCompatibleWithVehicle}_$hasCompleteData';
     
     // Retornar de cache si existe
     if (_cache.containsKey(cacheKey)) {
@@ -37,6 +39,7 @@ class MarkerGenerator {
       totalConnectors: totalConnectors,
       isAvailable: isAvailable,
       isCompatibleWithVehicle: isCompatibleWithVehicle,
+      hasCompleteData: hasCompleteData,
     );
     
     // Guardar en cache
@@ -64,6 +67,7 @@ class MarkerGenerator {
       totalConnectors: station.totalConnectorCount,
       isAvailable: station.hasAvailableConnectors,
       isCompatibleWithVehicle: compatible,
+      hasCompleteData: station.hasCompleteData,
     );
   }
 
@@ -80,6 +84,7 @@ class MarkerGenerator {
     required int totalConnectors,
     required bool isAvailable,
     bool isCompatibleWithVehicle = false,
+    bool hasCompleteData = true,
   }) async {
     // Dibujamos a alta resolución para mantener nitidez
     const double scale = 2.5;
@@ -92,9 +97,13 @@ class MarkerGenerator {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     
-    final Color accentColor = isAvailable 
-        ? AppColors.stationAvailable 
-        : AppColors.stationOccupied;
+    // Estaciones sin datos completos: color ámbar para indicar "datos limitados".
+    // Estaciones con datos completos: verde si disponible, gris si ocupada.
+    final Color accentColor = !hasCompleteData
+        ? const Color(0xFFE69900) // ámbar
+        : (isAvailable
+            ? AppColors.stationAvailable
+            : AppColors.stationOccupied);
 
     // Sombra
     final shadowPaint = Paint()
@@ -141,7 +150,7 @@ class MarkerGenerator {
     _drawBoltIcon(canvas, 6 * scale + iconSize / 2, 5 * scale + iconSize / 2, iconSize * 0.4, accentColor);
 
     // Texto de potencia (blanco sobre fondo verde)
-    final powerText = '$powerKw kW';
+    final powerText = hasCompleteData ? '$powerKw kW' : '? kW';
     const powerFontSize = 11.0;
     final powerStyle = ui.TextStyle(
       color: Colors.white,
@@ -164,7 +173,8 @@ class MarkerGenerator {
     );
 
     // Texto de disponibilidad (blanco)
-    final availText = '$availableConnectors/$totalConnectors';
+    final availText =
+        hasCompleteData ? '$availableConnectors/$totalConnectors' : 'info';
     const availFontSize = 10.0;
     final availStyle = ui.TextStyle(
       color: Colors.white,

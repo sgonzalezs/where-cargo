@@ -4,9 +4,13 @@ import 'package:flutter/services.dart';
 import 'core/theme/app_theme.dart';
 import 'core/constants/app_constants.dart';
 import 'navigation/app_router.dart';
+import 'shared/services/notification_service.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Inicializar servicio de notificaciones y solicitar permisos
+  await NotificationService().initialize();
   
   // Configurar orientación preferida
   SystemChrome.setPreferredOrientations([

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
 
 import '../../domain/enums/charging_enums.dart';
 import '../../domain/models/charging_station.dart';
@@ -27,6 +28,9 @@ class _StationDetailPageState extends State<StationDetailPage> {
   late ChargingStation _station;
   bool _isRefreshing = false;
   DateTime? _lastRefreshed;
+  String? _resolvedAddress; // dirección obtenida por geocodificación inversa
+  String? _resolvedCity;    // ciudad obtenida por geocodificación inversa
+  String? _resolvedCountry; // país obtenido por geocodificación inversa
 
   @override
   void initState() {
@@ -35,6 +39,7 @@ class _StationDetailPageState extends State<StationDetailPage> {
     _favoritesService.addListener(_onFavoritesChanged);
     _favoritesService.loadFavorites();
     _refreshStationData();
+    _resolveAddress();
   }
 
   @override
@@ -47,10 +52,58 @@ class _StationDetailPageState extends State<StationDetailPage> {
     if (mounted) setState(() {});
   }
 
+  /// Obtiene la dirección real usando geocodificación inversa desde las coordenadas.
+  /// Esto corrige cualquier dirección incorrecta proveniente de OCM u OSM.
+  Future<void> _resolveAddress() async {
+    try {
+      final placemarks = await placemarkFromCoordinates(
+        _station.latitude,
+        _station.longitude,
+      );
+      if (placemarks.isEmpty || !mounted) return;
+      final p = placemarks.first;
+
+      // Construir dirección legible con los datos disponibles
+      final parts = <String>[];
+      final street = p.thoroughfare;
+      final number = p.subThoroughfare;
+      final neighborhood = p.subLocality;
+
+      if (street != null && street.isNotEmpty) {
+        parts.add(number != null && number.isNotEmpty
+            ? '$street # $number'
+            : street);
+      }
+      if (neighborhood != null && neighborhood.isNotEmpty) {
+        parts.add(neighborhood);
+      }
+
+      if (parts.isNotEmpty) {
+        setState(() {
+          _resolvedAddress = parts.join(', ');
+          _resolvedCity = p.locality?.isNotEmpty == true
+              ? p.locality!
+              : p.administrativeArea;
+          _resolvedCountry = p.country?.isNotEmpty == true ? p.country : null;
+        });
+      }
+    } catch (_) {
+      // Si falla (sin internet, fuera de cobertura), se muestra la dirección original
+    }
+  }
+
   /// Refresca los datos de la estación desde la API
   Future<void> _refreshStationData() async {
     if (_isRefreshing) return;
-    
+
+    // Solo refrescar estaciones que vienen de OCM (IDs numéricos puros).
+    // OSM usa prefijo "osm_" y Google Places "gpl_" — si se intenta refrescar
+    // esos IDs contra OCM, OCM retorna una estación incorrecta que sobrescribe
+    // los datos originales (causa: el endpoint /poi/?chargepointid= acepta el
+    // parámetro pero ignora valores no numéricos, devolviendo resultados aleatorios).
+    final isOcmStation = int.tryParse(_station.id) != null;
+    if (!isOcmStation) return;
+
     setState(() => _isRefreshing = true);
     
     try {
@@ -129,11 +182,22 @@ class _StationDetailPageState extends State<StationDetailPage> {
       expandedHeight: station.images?.isNotEmpty == true ? 200 : 0,
       pinned: true,
       flexibleSpace: FlexibleSpaceBar(
+        // titlePadding limita el área del título para que no se cruce con
+        // el botón de back (izq) ni con los actions favorito/compartir (der).
+        titlePadding: const EdgeInsetsDirectional.only(
+          start: 56,
+          end: 110,
+          bottom: 12,
+        ),
         title: Text(
           station.name,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: Colors.white,
             fontWeight: FontWeight.bold,
+            fontSize: 14,
+            height: 1.15,
             shadows: [
               Shadow(color: Colors.black54, blurRadius: 4),
             ],
@@ -189,6 +253,11 @@ class _StationDetailPageState extends State<StationDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Banner de datos limitados (estaciones sin información completa de conectores)
+          if (!station.hasCompleteData) ...[
+            _buildLimitedDataBanner(),
+            const SizedBox(height: 12),
+          ],
           // Banner de estado de actualización
           _buildRefreshStatusBanner(),
           const SizedBox(height: 12),
@@ -251,6 +320,50 @@ class _StationDetailPageState extends State<StationDetailPage> {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLimitedDataBanner() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.amber.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.amber.shade700, width: 0.8),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, color: Colors.amber.shade800, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Información limitada',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.amber.shade900,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Esta estación fue reportada por fuentes externas pero no incluye '
+                  'datos verificados de conectores ni potencia. Te recomendamos '
+                  'confirmar con el operador antes de cargar.',
+                  style: TextStyle(
+                    color: Colors.amber.shade900,
+                    fontSize: 12,
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -442,7 +555,10 @@ class _StationDetailPageState extends State<StationDetailPage> {
                       ),
                 ),
                 Text(
-                  '${connector.powerKw.toStringAsFixed(0)} kW • ${connector.chargingType.displayName}',
+                  connector.type == ConnectorType.unknown ||
+                          connector.powerKw <= 0
+                      ? 'Información no disponible'
+                      : '${connector.powerKw.toStringAsFixed(0)} kW • ${connector.chargingType.displayName}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.textSecondary,
                       ),
@@ -493,9 +609,9 @@ class _StationDetailPageState extends State<StationDetailPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(station.address),
+                    Text(_resolvedAddress ?? station.address),
                     Text(
-                      '${station.city}, ${station.country}',
+                      '${_resolvedCity ?? station.city}, ${_resolvedCountry ?? station.country}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: AppColors.textSecondary,
                           ),

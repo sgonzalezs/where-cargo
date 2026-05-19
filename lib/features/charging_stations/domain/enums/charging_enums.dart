@@ -8,7 +8,8 @@ enum ConnectorType {
   tesla('Tesla Supercharger', 'tesla'),
   teslaDestination('Tesla Destination', 'tesla_destination'),
   gbtAc('GB/T AC', 'gbt_ac'),
-  gbtDc('GB/T DC', 'gbt_dc');
+  gbtDc('GB/T DC', 'gbt_dc'),
+  unknown('Conector no especificado', 'unknown');
 
   final String displayName;
   final String apiValue;
@@ -18,7 +19,7 @@ enum ConnectorType {
   static ConnectorType fromString(String value) {
     return ConnectorType.values.firstWhere(
       (type) => type.apiValue == value || type.name == value,
-      orElse: () => ConnectorType.type2,
+      orElse: () => ConnectorType.unknown,
     );
   }
 }

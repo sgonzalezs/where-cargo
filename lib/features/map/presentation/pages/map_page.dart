@@ -14,6 +14,9 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/location_service.dart';
 import '../../../../shared/services/favorites_service.dart';
 import '../../../../shared/services/vehicle_service.dart';
+import '../../../../shared/services/connectivity_service.dart';
+import '../../../../shared/services/proximity_notification_service.dart';
+import '../../../../shared/services/address_resolver_service.dart';
 import '../widgets/marker_generator.dart';
 
 /// Página del mapa con estaciones de carga
@@ -44,7 +47,10 @@ class _MapPageState extends State<MapPage> {
   // Estado
   bool _isLoading = true;
   bool _isSelectingLocation = false; // Modo de selección de ubicación
-  String? _errorMessage;
+  bool _isOffline = false;
+  StreamSubscription<bool>? _connectivitySubscription;
+  final ProximityNotificationService _proximityService =
+      ProximityNotificationService();
   List<ChargingStation> _allStations = [];
   List<ChargingStation> _stations = [];
   ChargingStation? _selectedStation;
@@ -66,6 +72,15 @@ class _MapPageState extends State<MapPage> {
     _favoritesService.loadFavorites();
     _vehicleService.addListener(_onVehicleChanged);
     _vehicleService.loadVehicles();
+    _proximityService.activate();
+    _connectivitySubscription =
+        ConnectivityService().onConnectivityChanged.listen((isConnected) {
+      if (isConnected && _isOffline && mounted) {
+        _refreshStations(); // auto-retry cuando vuelve la conexión
+      } else if (!isConnected && mounted) {
+        setState(() => _isOffline = true);
+      }
+    });
     _initializeMap();
   }
 
@@ -74,6 +89,7 @@ class _MapPageState extends State<MapPage> {
     _locationService.removeListener(_onLocationChanged);
     _favoritesService.removeListener(_onFavoritesChanged);
     _vehicleService.removeListener(_onVehicleChanged);
+    _connectivitySubscription?.cancel();
     _searchController.dispose();
     _repository.dispose();
     super.dispose();
@@ -156,10 +172,9 @@ class _MapPageState extends State<MapPage> {
 
   /// Carga las estaciones de carga desde Open Charge Map API
   Future<void> _loadStations() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    setState(() => _isLoading = true);
+
+    final isConnected = await ConnectivityService().isConnected;
 
     try {
       // Usar ubicación del servicio compartido
@@ -173,10 +188,14 @@ class _MapPageState extends State<MapPage> {
         setState(() {
           _allStations = stations;
           _isLoading = false;
+          _isOffline = !isConnected;
         });
         await _applyFilters();
+        _proximityService.updateStations(stations);
 
-        if (stations.isEmpty) {
+        if (!isConnected && stations.isNotEmpty) {
+          // El banner de sin conexión ya informa al usuario
+        } else if (stations.isEmpty) {
           _showMessage('No se encontraron estaciones en esta zona');
         } else {
           _showMessage('${stations.length} estaciones encontradas');
@@ -186,10 +205,9 @@ class _MapPageState extends State<MapPage> {
       debugPrint('Error cargando estaciones: $e');
       if (mounted) {
         setState(() {
-          _errorMessage = 'Error al cargar estaciones';
           _isLoading = false;
+          _isOffline = true;
         });
-        _showMessage('Error: $e');
       }
     }
   }
@@ -318,9 +336,60 @@ class _MapPageState extends State<MapPage> {
     await _loadStations();
   }
 
-  /// Widget del banner de selección de ubicación
-  Widget _buildLocationSelectionBanner() {
+  /// Banner no invasivo que se muestra cuando no hay conexión a internet.
+  Widget _buildOfflineBanner() {
+    final hasCachedData = _allStations.isNotEmpty;
     return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: hasCachedData ? const Color(0xFFE65100) : const Color(0xFFC62828),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(40),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off, color: Colors.white, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              hasCachedData
+                  ? 'Sin conexión — mostrando datos anteriores'
+                  : 'Sin conexión a internet',
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ),
+          if (!_isLoading)
+            GestureDetector(
+              onTap: _refreshStations,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(50),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Reintentar',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Widget del banner de selección de ubicación
+  Widget _buildLocationSelectionBanner() {    return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.primary,
@@ -495,37 +564,29 @@ class _MapPageState extends State<MapPage> {
             ),
           ),
 
-          // Indicador de carga inicial o error
-          if (_isLoading || _errorMessage != null)
+          // Banner de sin conexión (no invasivo, debajo de la barra de búsqueda)
+          if (_isOffline && !_isLoading)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 80,
+              left: 16,
+              right: 16,
+              child: _buildOfflineBanner(),
+            ),
+
+          // Indicador de carga inicial
+          if (_isLoading)
             Container(
               color: Colors.black26,
-              child: Center(
+              child: const Center(
                 child: Card(
                   child: Padding(
-                    padding: const EdgeInsets.all(20),
+                    padding: EdgeInsets.all(20),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (_isLoading) ...[
-                          const CircularProgressIndicator(),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Cargando estaciones de Open Charge Map...',
-                          ),
-                        ] else if (_errorMessage != null) ...[
-                          const Icon(
-                            Icons.error_outline,
-                            size: 48,
-                            color: Colors.red,
-                          ),
-                          const SizedBox(height: 16),
-                          Text(_errorMessage!),
-                          const SizedBox(height: 16),
-                          ElevatedButton(
-                            onPressed: _refreshStations,
-                            child: const Text('Reintentar'),
-                          ),
-                        ],
+                        CircularProgressIndicator(),
+                        SizedBox(height: 16),
+                        Text('Cargando estaciones de carga...'),
                       ],
                     ),
                   ),
@@ -589,138 +650,13 @@ class _MapPageState extends State<MapPage> {
   }
 
   Widget _buildStationPreview(ChargingStation station) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.15),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () => _navigateToDetail(station),
-          borderRadius: BorderRadius.circular(16),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: station.hasAvailableConnectors
-                        ? AppColors.stationAvailable.withOpacity(0.1)
-                        : AppColors.stationOccupied.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.ev_station,
-                    color: station.hasAvailableConnectors
-                        ? AppColors.stationAvailable
-                        : AppColors.stationOccupied,
-                    size: 32,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        station.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        station.address,
-                        style: const TextStyle(
-                          color: AppColors.textSecondary,
-                          fontSize: 13,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: [
-                          _buildInfoChip(
-                            Icons.electrical_services,
-                            '${station.maxPowerKw.toInt()} kW',
-                          ),
-                          _buildInfoChip(Icons.power, station.availabilityText),
-                          if (station.distanceKm != null)
-                            _buildInfoChip(
-                              Icons.navigation,
-                              '${station.distanceKm!.toStringAsFixed(1)} km',
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                Column(
-                  children: [
-                    IconButton(
-                      icon: Icon(
-                        _favoritesService.isFavorite(station.id)
-                            ? Icons.favorite
-                            : Icons.favorite_border,
-                        color: _favoritesService.isFavorite(station.id)
-                            ? Colors.red
-                            : AppColors.textSecondary,
-                      ),
-                      onPressed: () => _toggleFavorite(station),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.directions),
-                      color: AppColors.primary,
-                      onPressed: () => _navigateToStation(station),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      color: AppColors.textSecondary,
-                      onPressed: () {
-                        setState(() => _selectedStation = null);
-                      },
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoChip(IconData icon, String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: AppColors.textSecondary),
-          const SizedBox(width: 4),
-          Text(label, style: const TextStyle(fontSize: 11)),
-        ],
-      ),
+    return _StationPreviewCard(
+      station: station,
+      isFavorite: _favoritesService.isFavorite(station.id),
+      onTap: () => _navigateToDetail(station),
+      onFavoriteTap: () => _toggleFavorite(station),
+      onNavigate: () => _navigateToStation(station),
+      onClose: () => setState(() => _selectedStation = null),
     );
   }
 
@@ -924,6 +860,213 @@ class _MapPageState extends State<MapPage> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Widget independiente para el panel de preview del mapa.
+// Usa AddressResolverService para resolver la dirección si viene vacía.
+// ---------------------------------------------------------------------------
+class _StationPreviewCard extends StatefulWidget {
+  final ChargingStation station;
+  final bool isFavorite;
+  final VoidCallback onTap;
+  final VoidCallback onFavoriteTap;
+  final VoidCallback onNavigate;
+  final VoidCallback onClose;
+
+  const _StationPreviewCard({
+    required this.station,
+    required this.isFavorite,
+    required this.onTap,
+    required this.onFavoriteTap,
+    required this.onNavigate,
+    required this.onClose,
+  });
+
+  @override
+  State<_StationPreviewCard> createState() => _StationPreviewCardState();
+}
+
+class _StationPreviewCardState extends State<_StationPreviewCard> {
+  static const String _unavailable = 'Dirección no disponible';
+
+  String? _resolvedAddress;
+
+  ChargingStation get station => widget.station;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveAddress();
+  }
+
+  @override
+  void didUpdateWidget(_StationPreviewCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.station.id != widget.station.id) {
+      _resolvedAddress = null;
+      _resolveAddress();
+    }
+  }
+
+  Future<void> _resolveAddress() async {
+    final resolved = await AddressResolverService().resolve(
+      stationId: station.id,
+      latitude: station.latitude,
+      longitude: station.longitude,
+      currentAddress: station.address,
+    );
+    if (resolved != null && mounted) {
+      setState(() => _resolvedAddress = resolved);
+    }
+  }
+
+  /// La dirección que se muestra: resuelta → original válida → null.
+  String? get _displayAddress {
+    if (_resolvedAddress != null) return _resolvedAddress;
+    final orig = station.address;
+    if (orig.isNotEmpty && orig != _unavailable) return orig;
+    return null; // Ocultar si no hay nada útil aún
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: station.hasAvailableConnectors
+                        ? AppColors.stationAvailable.withOpacity(0.1)
+                        : AppColors.stationOccupied.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    Icons.ev_station,
+                    color: station.hasAvailableConnectors
+                        ? AppColors.stationAvailable
+                        : AppColors.stationOccupied,
+                    size: 32,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        station.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      if (_displayAddress != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          _displayAddress!,
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          _chip(Icons.electrical_services,
+                              '${station.maxPowerKw.toInt()} kW'),
+                          _chip(Icons.power, station.availabilityText),
+                          if (station.distanceKm != null)
+                            _chip(Icons.navigation,
+                                '${station.distanceKm!.toStringAsFixed(1)} km'),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Column(
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        widget.isFavorite
+                            ? Icons.favorite
+                            : Icons.favorite_border,
+                        color: widget.isFavorite
+                            ? Colors.red
+                            : AppColors.textSecondary,
+                      ),
+                      onPressed: widget.onFavoriteTap,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.directions),
+                      color: AppColors.primary,
+                      onPressed: widget.onNavigate,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      color: AppColors.textSecondary,
+                      onPressed: widget.onClose,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _chip(IconData icon, String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: AppColors.textSecondary),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ],
       ),
     );
   }

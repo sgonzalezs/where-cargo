@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import '../../domain/enums/charging_enums.dart';
 import '../../domain/models/charging_station.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/address_resolver_service.dart';
 
 /// Card para mostrar información resumida de una estación
-class StationCard extends StatelessWidget {
+class StationCard extends StatefulWidget {
   final ChargingStation station;
   final VoidCallback? onTap;
   final VoidCallback? onFavoriteTap;
@@ -22,6 +23,50 @@ class StationCard extends StatelessWidget {
   });
 
   @override
+  State<StationCard> createState() => _StationCardState();
+}
+
+class _StationCardState extends State<StationCard> {
+  String? _resolvedAddress;
+  bool _addressResolved = false; // true cuando la resolución terminó (con o sin resultado)
+
+  ChargingStation get station => widget.station;
+  bool get isFavorite => widget.isFavorite;
+  bool get compatibleWithVehicle => widget.compatibleWithVehicle;
+  VoidCallback? get onTap => widget.onTap;
+  VoidCallback? get onFavoriteTap => widget.onFavoriteTap;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveAddressIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(StationCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.station.id != widget.station.id) {
+      _resolvedAddress = null;
+      _resolveAddressIfNeeded();
+    }
+  }
+
+  Future<void> _resolveAddressIfNeeded() async {
+    final resolved = await AddressResolverService().resolve(
+      stationId: station.id,
+      latitude: station.latitude,
+      longitude: station.longitude,
+      currentAddress: station.address,
+    );
+    if (mounted) {
+      setState(() {
+        _resolvedAddress = resolved;
+        _addressResolved = true;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -36,7 +81,7 @@ class StationCard extends StatelessWidget {
               _buildHeader(context),
               const SizedBox(height: 12),
               _buildAddress(context),
-              const SizedBox(height: 12),
+              if (_addressDisplayText != null) const SizedBox(height: 12),
               _buildConnectorInfo(context),
               const SizedBox(height: 12),
               _buildFooter(context),
@@ -69,6 +114,35 @@ class StationCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: AppColors.textSecondary,
                       ),
+                ),
+              ],
+              if (!station.hasCompleteData) ...[
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: Colors.amber.shade700, width: 0.5),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.info_outline,
+                          size: 11, color: Colors.amber.shade800),
+                      const SizedBox(width: 3),
+                      Text(
+                        'Datos limitados',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.amber.shade900,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ],
@@ -133,7 +207,44 @@ class StationCard extends StatelessWidget {
     }
   }
 
+  static const String _unavailable = 'Dirección no disponible';
+
+  /// La dirección que se muestra: preferencia al resultado resuelto,
+  /// luego a la dirección original si es válida, null si no hay nada útil.
+  String? get _addressDisplayText {
+    // Mientras se resuelve y la dirección original es inválida — no mostrar nada
+    final original = station.address;
+    final hasValidOriginal =
+        original.isNotEmpty && original != _unavailable;
+
+    if (_resolvedAddress != null) return _resolvedAddress;
+    if (!_addressResolved && !hasValidOriginal) return null; // cargando
+    if (hasValidOriginal) return original;
+    if (_addressResolved && _resolvedAddress == null) return null; // sin resultado
+    return null;
+  }
+
   Widget _buildAddress(BuildContext context) {
+    final text = _addressDisplayText;
+    if (text == null) {
+      // Mientras resuelve: solo mostrar la distancia si la hay
+      if (station.distanceKm == null) return const SizedBox.shrink();
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          const Icon(Icons.location_on_outlined,
+              size: 16, color: AppColors.textSecondary),
+          const SizedBox(width: 4),
+          Text(
+            _formatDistance(station.distanceKm!),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         const Icon(
@@ -144,7 +255,7 @@ class StationCard extends StatelessWidget {
         const SizedBox(width: 4),
         Expanded(
           child: Text(
-            '${station.address}, ${station.city}',
+            station.city.isNotEmpty ? '$text, ${station.city}' : text,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                 ),
@@ -174,6 +285,16 @@ class StationCard extends StatelessWidget {
   }
 
   Widget _buildConnectorInfo(BuildContext context) {
+    // Si la estación no tiene datos verificados de conectores, no mostramos
+    // chips con "0 kW" ni "Conector no especificado" — sería ruido.
+    if (!station.hasCompleteData) {
+      return _buildInfoChip(
+        context,
+        icon: Icons.help_outline,
+        label: 'Conectores sin verificar',
+        color: Colors.amber.shade800,
+      );
+    }
     return Wrap(
       spacing: 8,
       runSpacing: 8,

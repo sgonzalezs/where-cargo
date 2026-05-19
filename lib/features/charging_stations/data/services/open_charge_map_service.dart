@@ -22,14 +22,14 @@ class OpenChargeMapService {
   /// 
   /// [latitude] y [longitude]: Coordenadas del centro de búsqueda
   /// [distanceKm]: Radio de búsqueda en kilómetros (default: 50)
-  /// [maxResults]: Máximo número de resultados (default: 100)
-  /// [countryCode]: Código ISO del país (default: CO para Colombia)
+  /// [maxResults]: Máximo número de resultados (default: 500)
+  /// Nota: countryCode omitido intencionalmente — la búsqueda por radio
+  /// ya delimita geográficamente sin necesidad de filtro extra.
   Future<List<ChargingStation>> getNearbyStations({
     required double latitude,
     required double longitude,
     double distanceKm = 50,
-    int maxResults = 100,
-    String countryCode = 'CO',
+    int maxResults = 500,
   }) async {
     try {
       final queryParams = {
@@ -39,7 +39,6 @@ class OpenChargeMapService {
         'distance': distanceKm.toString(),
         'distanceunit': 'KM',
         'maxresults': maxResults.toString(),
-        'countrycode': countryCode,
         'compact': 'true',
         'verbose': 'false',
         'key': _apiKey,
@@ -77,8 +76,8 @@ class OpenChargeMapService {
     return getNearbyStations(
       latitude: city.latitude,
       longitude: city.longitude,
-      distanceKm: 30,
-      maxResults: 200,
+      distanceKm: 50,
+      maxResults: 500,
     );
   }
 
@@ -204,7 +203,7 @@ class OpenChargeMapService {
         address: _buildAddress(addressInfo),
         city: addressInfo['Town'] as String? ?? 'Desconocida',
         state: addressInfo['StateOrProvince'] as String?,
-        country: addressInfo['Country']?['Title'] as String? ?? 'Colombia',
+        country: addressInfo['Country']?['Title'] as String? ?? '',
         latitude: latitude.toDouble(),
         longitude: longitude.toDouble(),
         connectors: connectors,

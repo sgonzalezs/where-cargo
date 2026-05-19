@@ -88,6 +88,17 @@ class ChargingStation {
   Set<ChargingType> get chargingTypes =>
       connectors.map((c) => c.chargingType).toSet();
 
+  /// `true` si la estación tiene datos reales de al menos un conector
+  /// (tipo conocido y potencia > 0). Las estaciones que vienen de fuentes
+  /// secundarias (Google Places, OSM) sin metadatos de conector quedarán
+  /// marcadas con `false` y se muestran en la UI con estilo "datos parciales".
+  bool get hasCompleteData {
+    if (connectors.isEmpty) return false;
+    return connectors.any(
+      (c) => c.type != ConnectorType.unknown && c.powerKw > 0,
+    );
+  }
+
   bool get hasDcCharging => chargingTypes.contains(ChargingType.dc);
 
   bool get hasAcCharging => chargingTypes.contains(ChargingType.ac);

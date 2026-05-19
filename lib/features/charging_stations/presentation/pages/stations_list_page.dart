@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../domain/models/charging_station.dart';
@@ -11,6 +13,8 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/location_service.dart';
 import '../../../../shared/services/favorites_service.dart';
 import '../../../../shared/services/vehicle_service.dart';
+import '../../../../shared/services/connectivity_service.dart';
+import '../../../../shared/services/proximity_notification_service.dart';
 
 /// Página con lista de estaciones de carga
 class StationsListPage extends StatefulWidget {
@@ -28,9 +32,10 @@ class _StationsListPageState extends State<StationsListPage> {
   final VehicleService _vehicleService = VehicleService();
 
   bool _isLoading = false;
+  bool _isOffline = false;
+  StreamSubscription<bool>? _connectivitySubscription;
   List<ChargingStation> _allStations = [];
   List<ChargingStation> _filteredStations = [];
-  String? _errorMessage;
   StationFilters _filters = const StationFilters();
 
   @override
@@ -41,6 +46,16 @@ class _StationsListPageState extends State<StationsListPage> {
     _favoritesService.loadFavorites();
     _vehicleService.addListener(_onVehicleChanged);
     _vehicleService.loadVehicles();
+    _connectivitySubscription =
+        ConnectivityService().onConnectivityChanged.listen((isConnected) {
+      if (isConnected && _isOffline && mounted) {
+        _repository.clearCache();
+        _loadStations(); // auto-retry cuando vuelve la conexión
+      } else if (!isConnected && mounted) {
+        setState(() => _isOffline = true);
+      }
+    });
+    ProximityNotificationService().activate();
     _loadStations();
   }
 
@@ -49,6 +64,7 @@ class _StationsListPageState extends State<StationsListPage> {
     _locationService.removeListener(_onLocationChanged);
     _favoritesService.removeListener(_onFavoritesChanged);
     _vehicleService.removeListener(_onVehicleChanged);
+    _connectivitySubscription?.cancel();
     _searchController.dispose();
     _repository.dispose();
     super.dispose();
@@ -91,8 +107,9 @@ class _StationsListPageState extends State<StationsListPage> {
   Future<void> _loadStations() async {
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
     });
+
+    final isConnected = await ConnectivityService().isConnected;
 
     try {
       final lat = _locationService.latitude;
@@ -109,13 +126,15 @@ class _StationsListPageState extends State<StationsListPage> {
           _allStations = stations;
           _filteredStations = _buildFilteredStations(stations: stations);
           _isLoading = false;
+          _isOffline = !isConnected;
         });
+        ProximityNotificationService().updateStations(stations);
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Error al cargar estaciones: $e';
           _isLoading = false;
+          _isOffline = true;
         });
       }
     }
@@ -181,6 +200,7 @@ class _StationsListPageState extends State<StationsListPage> {
           _buildLocationBar(),
           _buildSearchBar(),
           _buildActiveFiltersChips(),
+          if (_isOffline) _buildOfflineBanner(),
           Expanded(child: _buildContent()),
         ],
       ),
@@ -397,6 +417,53 @@ class _StationsListPageState extends State<StationsListPage> {
     });
   }
 
+  /// Banner no invasivo que se muestra cuando no hay conexión a internet.
+  Widget _buildOfflineBanner() {
+    final hasCachedData = _allStations.isNotEmpty;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: hasCachedData ? const Color(0xFFE65100) : const Color(0xFFC62828),
+      child: Row(
+        children: [
+          const Icon(Icons.wifi_off, color: Colors.white, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              hasCachedData
+                  ? 'Sin conexión — mostrando datos anteriores'
+                  : 'Sin conexión a internet',
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ),
+          if (!_isLoading)
+            GestureDetector(
+              onTap: () {
+                _repository.clearCache();
+                _loadStations();
+              },
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withAlpha(50),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Reintentar',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildContent() {
     if (_isLoading) {
       return const Center(
@@ -405,34 +472,8 @@ class _StationsListPageState extends State<StationsListPage> {
           children: [
             CircularProgressIndicator(),
             SizedBox(height: 16),
-            Text('Cargando estaciones de Open Charge Map...'),
+            Text('Cargando estaciones de carga...'),
           ],
-        ),
-      );
-    }
-
-    if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.error_outline, size: 64, color: AppColors.error),
-              const SizedBox(height: 16),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton.icon(
-                onPressed: _loadStations,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Reintentar'),
-              ),
-            ],
-          ),
         ),
       );
     }
@@ -495,7 +536,7 @@ class _StationsListPageState extends State<StationsListPage> {
                     Icon(Icons.cloud_done, size: 14, color: AppColors.primary),
                     SizedBox(width: 4),
                     Text(
-                      'Open Charge Map',
+                      'Datos en vivo',
                       style: TextStyle(fontSize: 11, color: AppColors.primary),
                     ),
                   ],

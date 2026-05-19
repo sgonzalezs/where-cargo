@@ -1,9 +1,15 @@
+import 'dart:convert';
 import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../domain/models/charging_station.dart';
 import '../../domain/enums/charging_enums.dart';
 import '../../../filters/domain/models/station_filters.dart';
 import '../services/open_charge_map_service.dart';
+import '../services/osm_service.dart';
+import '../services/google_places_service.dart';
 
 /// Repositorio para gestionar estaciones de carga
 ///
@@ -11,6 +17,8 @@ import '../services/open_charge_map_service.dart';
 /// y proporciona cache local para mejor performance.
 class ChargingStationsRepository {
   final OpenChargeMapService _ocmService;
+  final OsmService _osmService;
+  final GooglePlacesService _googlePlacesService;
 
   // Cache local de estaciones
   List<ChargingStation>? _cachedStations;
@@ -21,8 +29,21 @@ class ChargingStationsRepository {
   static const Duration _cacheExpiration = Duration(minutes: 10);
   static const double _locationThreshold = 0.01; // ~1km de diferencia
 
-  ChargingStationsRepository({OpenChargeMapService? ocmService})
-    : _ocmService = ocmService ?? OpenChargeMapService();
+  // Claves para cache persistente
+  static const String _persistentCacheKey = 'station_cache_v5';
+  static const String _persistentCacheLatKey = 'station_cache_lat_v5';
+  static const String _persistentCacheLngKey = 'station_cache_lng_v5';
+  static const String _persistentCacheTimeKey = 'station_cache_time_v5';
+  static const Duration _persistentCacheMaxAge = Duration(hours: 24);
+
+  ChargingStationsRepository({
+    OpenChargeMapService? ocmService,
+    OsmService? osmService,
+    GooglePlacesService? googlePlacesService,
+  })  : _ocmService = ocmService ?? OpenChargeMapService(),
+        _osmService = osmService ?? OsmService(),
+        _googlePlacesService =
+            googlePlacesService ?? GooglePlacesService();
 
   /// Obtiene estaciones cercanas a una ubicación
   ///
@@ -49,31 +70,75 @@ class ChargingStationsRepository {
     }
 
     try {
-      final stations = await _ocmService.getNearbyStations(
-        latitude: latitude,
-        longitude: longitude,
-        distanceKm: radiusKm,
-        maxResults: 100,
-      );
+      // Consultar OCM, OSM y Google Places en paralelo
+      final results = await Future.wait([
+        _ocmService.getNearbyStations(
+          latitude: latitude,
+          longitude: longitude,
+          distanceKm: radiusKm,
+          maxResults: 500,
+        ),
+        _osmService.getNearbyStations(
+          latitude: latitude,
+          longitude: longitude,
+          radiusMeters: (radiusKm * 1000).round(),
+        ),
+        _googlePlacesService.getNearbyStations(
+          latitude: latitude,
+          longitude: longitude,
+          radiusMeters: (radiusKm * 1000).clamp(0, 50000).round(),
+        ),
+      ]);
+
+      final ocmStations = results[0];
+      final osmStations = results[1];
+      final googleStations = results[2];
+
+      // Mantenemos TODAS las estaciones de las 3 fuentes. Aquellas que vienen
+      // de Google/OSM sin metadatos de conector se marcan con `hasCompleteData = false`
+      // y la UI las muestra con un indicador "Datos limitados" para que el
+      // usuario al menos sepa que hay un punto de carga en esa ubicación.
+      final completeFromOsm =
+          osmStations.where((s) => s.hasCompleteData).length;
+      final completeFromGoogle =
+          googleStations.where((s) => s.hasCompleteData).length;
+
+      debugPrint(
+          '[WhereCargo] Fuentes — OCM: ${ocmStations.length}, '
+          'Google: ${googleStations.length} (con datos: $completeFromGoogle), '
+          'OSM: ${osmStations.length} (con datos: $completeFromOsm)');
+
+      // Prioridad: OCM (más completo) → Google Places → OSM (fallback)
+      final withGoogle = _mergeStations(ocmStations, googleStations);
+      final merged = _mergeStations(withGoogle, osmStations);
+
+      debugPrint('[WhereCargo] Total después de fusionar: ${merged.length}');
 
       // Ordenar por distancia
-      stations.sort(
+      merged.sort(
         (a, b) => (a.distanceKm ?? double.infinity).compareTo(
           b.distanceKm ?? double.infinity,
         ),
       );
 
       // Actualizar cache
-      _cachedStations = stations;
+      _cachedStations = merged;
       _lastFetch = DateTime.now();
       _lastLatitude = latitude;
       _lastLongitude = longitude;
+      _savePersistentCache(merged, latitude, longitude); // fire-and-forget
 
-      return stations;
+      return merged;
     } catch (e) {
-      // Si hay error y tenemos cache, retornar cache
+      // Si hay error y tenemos cache en memoria, retornar cache
       if (_cachedStations != null) {
         return _cachedStations!;
+      }
+      // Intentar con cache persistente (sobrevive reinicios de la app)
+      final persisted = await _loadPersistentCache(latitude, longitude);
+      if (persisted != null) {
+        _cachedStations = persisted;
+        return persisted;
       }
       rethrow;
     }
@@ -136,6 +201,11 @@ class ChargingStationsRepository {
   /// Refresca los datos de una estación desde el API
   /// Útil para obtener información actualizada de disponibilidad
   Future<ChargingStation?> refreshStation(ChargingStation station) async {
+    // OCM solo acepta IDs numéricos. Si la estación viene de OSM (osm_*) o
+    // Google Places (gpl_*) no podemos refrescar — devolver la original tal cual.
+    if (int.tryParse(station.id) == null) {
+      return station;
+    }
     try {
       final refreshed = await _ocmService.getStationById(
         stationId: station.id,
@@ -391,7 +461,7 @@ class ChargingStationsRepository {
     return latDiff < _locationThreshold && lngDiff < _locationThreshold;
   }
 
-  /// Limpia el cache
+  /// Limpia el cache en memoria (el persistente se mantiene para uso offline).
   void clearCache() {
     _cachedStations = null;
     _lastFetch = null;
@@ -413,6 +483,59 @@ class ChargingStationsRepository {
   bool _isSameLocation(double latitude, double longitude) {
     if (_lastLatitude == null || _lastLongitude == null) return false;
     return latitude == _lastLatitude && longitude == _lastLongitude;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Cache persistente
+  // ---------------------------------------------------------------------------
+
+  /// Guarda las estaciones en SharedPreferences de forma asíncrona.
+  void _savePersistentCache(
+    List<ChargingStation> stations,
+    double lat,
+    double lng,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonList = stations.map((s) => s.toJson()).toList();
+      await prefs.setString(_persistentCacheKey, jsonEncode(jsonList));
+      await prefs.setDouble(_persistentCacheLatKey, lat);
+      await prefs.setDouble(_persistentCacheLngKey, lng);
+      await prefs.setInt(
+        _persistentCacheTimeKey,
+        DateTime.now().millisecondsSinceEpoch,
+      );
+    } catch (e) {
+      debugPrint('Error guardando cache persistente: $e');
+    }
+  }
+
+  /// Carga estaciones desde SharedPreferences si el cache no ha expirado.
+  Future<List<ChargingStation>?> _loadPersistentCache(
+    double lat,
+    double lng,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = prefs.getString(_persistentCacheKey);
+      if (jsonString == null) return null;
+
+      // Verificar edad del cache
+      final cacheTime = prefs.getInt(_persistentCacheTimeKey) ?? 0;
+      final age = DateTime.now().millisecondsSinceEpoch - cacheTime;
+      if (age > _persistentCacheMaxAge.inMilliseconds) return null;
+
+      final List<dynamic> jsonList = jsonDecode(jsonString);
+      final stations = jsonList
+          .map((j) => ChargingStation.fromJson(j as Map<String, dynamic>))
+          .toList();
+
+      // Recalcular distancias con la ubicación actual
+      return _recalculateDistances(stations, lat, lng);
+    } catch (e) {
+      debugPrint('Error cargando cache persistente: $e');
+      return null;
+    }
   }
 
   /// Recalcula las distancias de las estaciones desde una nueva ubicación
@@ -471,6 +594,42 @@ class ChargingStationsRepository {
   }
 
   double _toRadians(double degrees) => degrees * math.pi / 180;
+
+  // ---------------------------------------------------------------------------
+  // Fusión de fuentes
+  // ---------------------------------------------------------------------------
+
+  /// Combina estaciones de OCM y OSM eliminando duplicados.
+  ///
+  /// Se considera duplicado cualquier par de estaciones cuyo centro
+  /// esté a menos de [thresholdKm] km (por defecto 0.05 = 50 m).
+  /// En caso de duplicado siempre se prioriza la estación de OCM,
+  /// que generalmente tiene información más completa.
+  List<ChargingStation> _mergeStations(
+    List<ChargingStation> ocm,
+    List<ChargingStation> osm, {
+    double thresholdKm = 0.05,
+  }) {
+    final merged = List<ChargingStation>.from(ocm);
+
+    for (final osmStation in osm) {
+      final isDuplicate = merged.any((existing) {
+        final dist = _calculateDistance(
+          existing.latitude,
+          existing.longitude,
+          osmStation.latitude,
+          osmStation.longitude,
+        );
+        return dist < thresholdKm;
+      });
+
+      if (!isDuplicate) {
+        merged.add(osmStation);
+      }
+    }
+
+    return merged;
+  }
 
   void dispose() {
     _ocmService.dispose();
