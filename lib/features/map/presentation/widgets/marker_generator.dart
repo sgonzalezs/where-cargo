@@ -71,6 +71,105 @@ class MarkerGenerator {
     );
   }
 
+  /// Genera un marcador tradicional para la ubicación del usuario (pin verde y blanco)
+  static Future<BitmapDescriptor> generateUserLocationMarker() async {
+    const String cacheKey = 'marker_user_location';
+    
+    // Retornar de cache si existe
+    if (_cache.containsKey(cacheKey)) {
+      return _cache[cacheKey]!;
+    }
+
+    const double scale = 2.5;
+    const double width = 40 * scale;
+    const double height = 56 * scale;
+    const double pinRadius = 14 * scale;
+    
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    
+    // Sombra
+    final shadowPaint = Paint()
+      ..color = Colors.black.withAlpha(40)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
+    
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(width / 2, height * 0.85),
+        width: width * 0.6,
+        height: height * 0.15,
+      ),
+      shadowPaint,
+    );
+    
+    // Cabeza del pin (redondeada, verde)
+    final pinHeadPaint = Paint()
+      ..color = AppColors.primary
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawCircle(
+      Offset(width / 2, pinRadius),
+      pinRadius,
+      pinHeadPaint,
+    );
+    
+    // Cuerpo del pin (hacia abajo, verde)
+    final bodyPath = Path()
+      ..moveTo(width / 2 - pinRadius, pinRadius)
+      ..lineTo(width / 2, height - 2)
+      ..lineTo(width / 2 + pinRadius, pinRadius)
+      ..arcToPoint(
+        Offset(width / 2 - pinRadius, pinRadius),
+        radius: Radius.circular(pinRadius),
+        clockwise: false,
+      )
+      ..close();
+    
+    canvas.drawPath(bodyPath, pinHeadPaint);
+    
+    // Círculo blanco interior (punto de ubicación)
+    final circlePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawCircle(
+      Offset(width / 2, pinRadius),
+      pinRadius * 0.5,
+      circlePaint,
+    );
+    
+    // Punto central pequeño (verde)
+    final centerPaint = Paint()
+      ..color = AppColors.primary
+      ..style = PaintingStyle.fill;
+    
+    canvas.drawCircle(
+      Offset(width / 2, pinRadius),
+      pinRadius * 0.2,
+      centerPaint,
+    );
+    
+    // Convertir a imagen
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(width.toInt(), height.toInt());
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    
+    if (byteData == null) {
+      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+    }
+    
+    final descriptor = BitmapDescriptor.bytes(
+      byteData.buffer.asUint8List(),
+      width: 40,
+      height: 56,
+    );
+    
+    // Guardar en cache
+    _cache[cacheKey] = descriptor;
+    
+    return descriptor;
+  }
+
   /// Limpia el cache de marcadores
   static void clearCache() {
     _cache.clear();

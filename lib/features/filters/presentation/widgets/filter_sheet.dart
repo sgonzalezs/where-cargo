@@ -137,7 +137,7 @@ class _FilterSheetState extends State<FilterSheet> {
                   _filters = _filters.copyWith(connectorTypes: newTypes);
                 });
               },
-              selectedColor: AppColors.secondary.withOpacity(0.2),
+              selectedColor: AppColors.secondary.withValues(alpha: 0.2),
               checkmarkColor: AppColors.secondary,
             );
           }).toList(),
@@ -263,7 +263,7 @@ class _FilterSheetState extends State<FilterSheet> {
                   );
                 });
               },
-              selectedColor: AppColors.success.withOpacity(0.2),
+              selectedColor: AppColors.success.withValues(alpha: 0.2),
             ),
             FilterChip(
               avatar: const Icon(Icons.check_circle, size: 18),
@@ -277,7 +277,7 @@ class _FilterSheetState extends State<FilterSheet> {
                   );
                 });
               },
-              selectedColor: AppColors.stationAvailable.withOpacity(0.2),
+              selectedColor: AppColors.stationAvailable.withValues(alpha: 0.2),
             ),
             FilterChip(
               avatar: const Icon(Icons.access_time, size: 18),

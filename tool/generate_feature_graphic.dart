@@ -12,7 +12,6 @@ void main() async {
   
   // Colores
   final primaryGreen = img.ColorRgba8(0, 200, 83, 255);      // #00C853
-  final darkGreen = img.ColorRgba8(0, 150, 60, 255);         // Más oscuro
   final white = img.ColorRgba8(255, 255, 255, 255);
   final lightGreen = img.ColorRgba8(0, 230, 118, 80);        // Semi-transparente
   

@@ -15,6 +15,7 @@ import '../../../../shared/services/favorites_service.dart';
 import '../../../../shared/services/vehicle_service.dart';
 import '../../../../shared/services/connectivity_service.dart';
 import '../../../../shared/services/proximity_notification_service.dart';
+import '../../../../shared/services/stations_service.dart';
 
 /// Página con lista de estaciones de carga
 class StationsListPage extends StatefulWidget {
@@ -30,11 +31,10 @@ class _StationsListPageState extends State<StationsListPage> {
   final LocationService _locationService = LocationService();
   final FavoritesService _favoritesService = FavoritesService();
   final VehicleService _vehicleService = VehicleService();
+  final StationsService _stationsService = StationsService();
 
-  bool _isLoading = false;
   bool _isOffline = false;
   StreamSubscription<bool>? _connectivitySubscription;
-  List<ChargingStation> _allStations = [];
   List<ChargingStation> _filteredStations = [];
   StationFilters _filters = const StationFilters();
 
@@ -46,17 +46,16 @@ class _StationsListPageState extends State<StationsListPage> {
     _favoritesService.loadFavorites();
     _vehicleService.addListener(_onVehicleChanged);
     _vehicleService.loadVehicles();
+    _stationsService.addListener(_onStationsChanged);
     _connectivitySubscription =
         ConnectivityService().onConnectivityChanged.listen((isConnected) {
-      if (isConnected && _isOffline && mounted) {
-        _repository.clearCache();
-        _loadStations(); // auto-retry cuando vuelve la conexión
-      } else if (!isConnected && mounted) {
-        setState(() => _isOffline = true);
+      if (mounted) {
+        setState(() => _isOffline = !isConnected);
       }
     });
     ProximityNotificationService().activate();
-    _loadStations();
+    // Aplicar filtros con estaciones que ya estén cargadas
+    _applyFilters();
   }
 
   @override
@@ -64,6 +63,7 @@ class _StationsListPageState extends State<StationsListPage> {
     _locationService.removeListener(_onLocationChanged);
     _favoritesService.removeListener(_onFavoritesChanged);
     _vehicleService.removeListener(_onVehicleChanged);
+    _stationsService.removeListener(_onStationsChanged);
     _connectivitySubscription?.cancel();
     _searchController.dispose();
     _repository.dispose();
@@ -78,65 +78,35 @@ class _StationsListPageState extends State<StationsListPage> {
     if (mounted) setState(() {});
   }
 
-  void _onLocationChanged() {
-    // Cuando la ubicación cambia (por ejemplo desde el mapa), recargar
+  void _onStationsChanged() {
+    // Cuando las estaciones se actualizan en el servicio compartido, aplicar filtros
     if (mounted) {
-      _recalculateDistancesAndReload();
+      _applyFilters();
     }
   }
 
-  Future<void> _recalculateDistancesAndReload() async {
+  void _onLocationChanged() {
+    // Cuando la ubicación cambia, recalcular distancias
+    if (mounted) {
+      _recalculateDistances();
+    }
+  }
+
+  void _recalculateDistances() {
     final lat = _locationService.latitude;
     final lng = _locationService.longitude;
 
-    if (_allStations.isNotEmpty) {
+    if (_stationsService.hasStations) {
       final updatedStations = _repository.recalculateDistancesFrom(
-        stations: _allStations,
+        stations: _stationsService.stations,
         latitude: lat,
         longitude: lng,
       );
+      // Actualizar estaciones en el servicio
+      _stationsService.setStations(updatedStations);
       setState(() {
-        _allStations = updatedStations;
         _applyFilters();
       });
-    } else {
-      await _loadStations();
-    }
-  }
-
-  Future<void> _loadStations() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    final isConnected = await ConnectivityService().isConnected;
-
-    try {
-      final lat = _locationService.latitude;
-      final lng = _locationService.longitude;
-
-      final stations = await _repository.getNearbyStations(
-        latitude: lat,
-        longitude: lng,
-        radiusKm: 30,
-      );
-
-      if (mounted) {
-        setState(() {
-          _allStations = stations;
-          _filteredStations = _buildFilteredStations(stations: stations);
-          _isLoading = false;
-          _isOffline = !isConnected;
-        });
-        ProximityNotificationService().updateStations(stations);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _isOffline = true;
-        });
-      }
     }
   }
 
@@ -150,7 +120,7 @@ class _StationsListPageState extends State<StationsListPage> {
     List<ChargingStation>? stations,
   }) {
     return _repository.filterStations(
-      stations ?? _allStations,
+      stations ?? _stationsService.stations,
       query: _filters.searchQuery,
       connectorTypes: _filters.connectorTypes.isNotEmpty
           ? _filters.connectorTypes
@@ -186,11 +156,10 @@ class _StationsListPageState extends State<StationsListPage> {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isLoading
+            onPressed: _stationsService.isLoading
                 ? null
                 : () {
-                    _repository.clearCache();
-                    _loadStations();
+                    _applyFilters();
                   },
           ),
         ],
@@ -413,13 +382,13 @@ class _StationsListPageState extends State<StationsListPage> {
     _searchController.clear();
     setState(() {
       _filters = const StationFilters();
-      _filteredStations = _buildFilteredStations(stations: _allStations);
+      _filteredStations = _buildFilteredStations(stations: _stationsService.stations);
     });
   }
 
   /// Banner no invasivo que se muestra cuando no hay conexión a internet.
   Widget _buildOfflineBanner() {
-    final hasCachedData = _allStations.isNotEmpty;
+    final hasCachedData = _stationsService.stations.isNotEmpty;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -436,11 +405,10 @@ class _StationsListPageState extends State<StationsListPage> {
               style: const TextStyle(color: Colors.white, fontSize: 12),
             ),
           ),
-          if (!_isLoading)
+          if (!_stationsService.isLoading)
             GestureDetector(
               onTap: () {
-                _repository.clearCache();
-                _loadStations();
+                _applyFilters();
               },
               child: Container(
                 padding:
@@ -465,7 +433,7 @@ class _StationsListPageState extends State<StationsListPage> {
   }
 
   Widget _buildContent() {
-    if (_isLoading) {
+    if (_stationsService.isLoading) {
       return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -548,8 +516,7 @@ class _StationsListPageState extends State<StationsListPage> {
         Expanded(
           child: RefreshIndicator(
             onRefresh: () async {
-              _repository.clearCache();
-              await _loadStations();
+              _applyFilters();
             },
             child: ListView.builder(
               padding: const EdgeInsets.only(top: 8, bottom: 16),

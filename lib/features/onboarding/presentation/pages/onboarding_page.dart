@@ -446,7 +446,7 @@ class _VehicleSlideState extends State<_VehicleSlide> {
 
             // Marca
             DropdownButtonFormField<String>(
-              value: _selectedBrand,
+              initialValue: _selectedBrand,
               decoration: const InputDecoration(
                 labelText: 'Marca',
                 prefixIcon: Icon(Icons.business),
@@ -467,7 +467,7 @@ class _VehicleSlideState extends State<_VehicleSlide> {
 
             // Modelo
             DropdownButtonFormField<String>(
-              value: _selectedModel,
+              initialValue: _selectedModel,
               decoration: const InputDecoration(
                 labelText: 'Modelo',
                 prefixIcon: Icon(Icons.directions_car),

@@ -18,7 +18,6 @@ void main() async {
   
   // Colores
   final primaryGreen = img.ColorRgba8(0, 200, 83, 255);      // #00C853
-  final lightGreen = img.ColorRgba8(0, 230, 118, 255);       // #00E676
   final white = img.ColorRgba8(255, 255, 255, 255);
   final lightGray = img.ColorRgba8(224, 224, 224, 255);
   final darkGray = img.ColorRgba8(189, 189, 189, 255);

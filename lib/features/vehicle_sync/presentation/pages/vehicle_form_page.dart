@@ -1,8 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/models/vehicle.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/vehicle_service.dart';
+
+/// TextInputFormatter personalizado que limita números en un rango específico
+class RangeInputFormatter extends TextInputFormatter {
+  final int maxValue;
+  
+  RangeInputFormatter({required this.maxValue});
+  
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    if (newValue.text.isEmpty) {
+      return newValue;
+    }
+    
+    // Permitir solo dígitos
+    if (!RegExp(r'^[0-9]*$').hasMatch(newValue.text)) {
+      return oldValue;
+    }
+    
+    final intValue = int.tryParse(newValue.text);
+    if (intValue == null) {
+      return oldValue;
+    }
+    
+    // Si el valor excede el máximo, rechazar
+    if (intValue > maxValue) {
+      return oldValue;
+    }
+    
+    return newValue;
+  }
+}
 
 /// Página para agregar o editar un vehículo
 class VehicleFormPage extends StatefulWidget {
@@ -37,22 +69,24 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
 
   // Marcas y modelos populares de EVs
   static const Map<String, List<String>> _brandsAndModels = {
-    'Tesla': ['Model 3', 'Model Y', 'Model S', 'Model X', 'Cybertruck'],
-    'BYD': ['Dolphin', 'Seal', 'Atto 3', 'Han', 'Tang'],
-    'Chevrolet': ['Bolt EV', 'Bolt EUV', 'Equinox EV', 'Blazer EV'],
-    'Nissan': ['Leaf', 'Ariya'],
-    'Hyundai': ['Ioniq 5', 'Ioniq 6', 'Kona Electric'],
-    'Kia': ['EV6', 'EV9', 'Niro EV'],
-    'Ford': ['Mustang Mach-E', 'F-150 Lightning'],
-    'Volkswagen': ['ID.4', 'ID.3', 'ID.Buzz'],
-    'BMW': ['i4', 'iX', 'iX3', 'i7'],
-    'Mercedes-Benz': ['EQS', 'EQE', 'EQB', 'EQA'],
-    'Audi': ['e-tron', 'e-tron GT', 'Q4 e-tron', 'Q8 e-tron'],
-    'Porsche': ['Taycan'],
-    'Rivian': ['R1T', 'R1S'],
-    'Renault': ['Zoe', 'Megane E-Tech'],
-    'Peugeot': ['e-208', 'e-2008', 'e-308'],
-    'Otro': ['Otro modelo'],
+    'Tesla': ['Model 3', 'Model Y', 'Model S', 'Model X', 'Cybertruck', 'Roadster'],
+    'BYD': ['Dolphin', 'Seagull', 'Atto 3', 'Yuan Plus', 'Yuan Up', 'Han EV', 'Qin EV', 'Song Plus DM-i', 'Tang', 'Denza Y6'],
+    'Chevrolet': ['Bolt EV', 'Bolt EUV', 'Equinox EV', 'Blazer EV', 'Silverado EV', 'Tahoe EV'],
+    'Nissan': ['Leaf', 'Ariya', 'e-NV200'],
+    'Hyundai': ['Ioniq 5', 'Ioniq 6', 'Kona Electric', 'Ioniq 7', 'Tucson Hybrid', 'Venue Electric'],
+    'Kia': ['EV6', 'EV9', 'Niro EV', 'Soul EV', 'EV3', 'Sportage Plug-in'],
+    'Ford': ['Mustang Mach-E', 'F-150 Lightning', 'E-Transit', 'Explorer Hybrid'],
+    'Volkswagen': ['ID.4', 'ID.3', 'ID.Buzz', 'ID.5', 'ID.6', 'ID.7'],
+    'BMW': ['i4', 'iX', 'iX3', 'i7', 'i5', 'i3'],
+    'Mercedes-Benz': ['EQS', 'EQE', 'EQB', 'EQA', 'EQC', 'EQG'],
+    'Audi': ['e-tron', 'e-tron GT', 'Q4 e-tron', 'Q8 e-tron', 'Q6 e-tron', 'A6 e-tron'],
+    'Porsche': ['Taycan', 'Macan Electric'],
+    'Rivian': ['R1T', 'R1S', 'R2', 'R3'],
+    'Renault': ['Zoe', 'Megane E-Tech', 'Scenic E-Tech', 'Master Electric'],
+    'Peugeot': ['e-208', 'e-2008', 'e-308', 'e-3008', 'e-5008'],
+    'Volvo': ['XC40 Recharge', 'C40 Recharge', 'EX90'],
+    'Mazda': ['MX-30', 'MX-30 EV'],
+    'Otros': ['Otro modelo'],
   };
 
   // Tipos de conectores
@@ -165,7 +199,7 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
 
             // Marca
             DropdownButtonFormField<String>(
-              value: _selectedBrand,
+              initialValue: _selectedBrand,
               decoration: const InputDecoration(
                 labelText: 'Marca *',
                 prefixIcon: Icon(Icons.business),
@@ -185,7 +219,7 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
 
             // Modelo
             DropdownButtonFormField<String>(
-              value: _selectedModel,
+              initialValue: _selectedModel,
               decoration: const InputDecoration(
                 labelText: 'Modelo *',
                 prefixIcon: Icon(Icons.directions_car),
@@ -269,6 +303,10 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
             TextFormField(
               controller: _currentBatteryController,
               keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                RangeInputFormatter(maxValue: 100),
+              ],
               decoration: const InputDecoration(
                 labelText: 'Nivel de batería actual (%)',
                 hintText: 'Ej: 80',
@@ -290,12 +328,24 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
             TextFormField(
               controller: _rangeController,
               keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                RangeInputFormatter(maxValue: 9999),
+              ],
               decoration: const InputDecoration(
                 labelText: 'Autonomía estimada (km)',
                 hintText: 'Ej: 400',
                 prefixIcon: Icon(Icons.route),
                 suffixText: 'km',
               ),
+              validator: (value) {
+                if (value == null || value.isEmpty) return null;
+                final range = int.tryParse(value);
+                if (range == null || range < 0 || range > 9999) {
+                  return 'Autonomía inválida (0-9999 km)';
+                }
+                return null;
+              },
             ),
             const SizedBox(height: 16),
 
@@ -309,6 +359,14 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
                 prefixIcon: Icon(Icons.flash_on),
                 suffixText: 'kW',
               ),
+              validator: (value) {
+                if (value == null || value.isEmpty) return null;
+                final power = double.tryParse(value);
+                if (power == null || power < 0 || power > 350) {
+                  return 'Potencia inválida (0-350 kW)';
+                }
+                return null;
+              },
             ),
           ],
         ),

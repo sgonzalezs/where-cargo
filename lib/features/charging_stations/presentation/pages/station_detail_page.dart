@@ -237,12 +237,6 @@ class _StationDetailPageState extends State<StationDetailPage> {
           ),
           onPressed: _toggleFavorite,
         ),
-        IconButton(
-          icon: const Icon(Icons.share),
-          onPressed: () {
-            // TODO: Implementar compartir
-          },
-        ),
       ],
     );
   }
@@ -329,7 +323,7 @@ class _StationDetailPageState extends State<StationDetailPage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.amber.withOpacity(0.12),
+        color: Colors.amber.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.amber.shade700, width: 0.8),
       ),
@@ -520,8 +514,8 @@ class _StationDetailPageState extends State<StationDetailPage> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isAvailable
-            ? AppColors.stationAvailable.withOpacity(0.05)
-            : Colors.grey.withOpacity(0.05),
+            ? AppColors.stationAvailable.withValues(alpha: 0.05)
+            : Colors.grey.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isAvailable ? AppColors.stationAvailable : Colors.grey,
@@ -534,8 +528,8 @@ class _StationDetailPageState extends State<StationDetailPage> {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: isAvailable
-                  ? AppColors.stationAvailable.withOpacity(0.1)
-                  : Colors.grey.withOpacity(0.1),
+                  ? AppColors.stationAvailable.withValues(alpha: 0.1)
+                  : Colors.grey.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
@@ -662,8 +656,8 @@ class _StationDetailPageState extends State<StationDetailPage> {
                 ),
                 decoration: BoxDecoration(
                   color: station.isOpen
-                      ? AppColors.success.withOpacity(0.1)
-                      : AppColors.error.withOpacity(0.1),
+                      ? AppColors.success.withValues(alpha: 0.1)
+                      : AppColors.error.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -757,18 +751,6 @@ class _StationDetailPageState extends State<StationDetailPage> {
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          ElevatedButton(
-            onPressed: () {
-              // TODO: Implementar llamada
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.surface,
-              foregroundColor: AppColors.primary,
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-            ),
-            child: const Icon(Icons.phone),
           ),
         ],
       ),

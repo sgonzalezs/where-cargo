@@ -17,6 +17,7 @@ import '../../../../shared/services/vehicle_service.dart';
 import '../../../../shared/services/connectivity_service.dart';
 import '../../../../shared/services/proximity_notification_service.dart';
 import '../../../../shared/services/address_resolver_service.dart';
+import '../../../../shared/services/stations_service.dart';
 import '../widgets/marker_generator.dart';
 
 /// Página del mapa con estaciones de carga
@@ -43,6 +44,9 @@ class _MapPageState extends State<MapPage> {
 
   // Servicio de vehículos
   final VehicleService _vehicleService = VehicleService();
+
+  // Servicio compartido de estaciones
+  final StationsService _stationsService = StationsService();
 
   // Estado
   bool _isLoading = true;
@@ -173,6 +177,7 @@ class _MapPageState extends State<MapPage> {
   /// Carga las estaciones de carga desde Open Charge Map API
   Future<void> _loadStations() async {
     setState(() => _isLoading = true);
+    _stationsService.setLoading(true);
 
     final isConnected = await ConnectivityService().isConnected;
 
@@ -190,6 +195,9 @@ class _MapPageState extends State<MapPage> {
           _isLoading = false;
           _isOffline = !isConnected;
         });
+        // Guardar estaciones en el servicio compartido
+        _stationsService.setStations(stations);
+        _stationsService.setLoading(false);
         await _applyFilters();
         _proximityService.updateStations(stations);
 
@@ -209,6 +217,7 @@ class _MapPageState extends State<MapPage> {
           _isOffline = true;
         });
       }
+      _stationsService.setLoading(false);
     }
   }
 
@@ -267,29 +276,6 @@ class _MapPageState extends State<MapPage> {
     final query = value.trim();
     _filters = _filters.copyWith(searchQuery: query.isEmpty ? '' : query);
     await _applyFilters();
-  }
-
-  /// Combina los marcadores de estaciones con el marcador de ubicación del usuario
-  Set<Marker> get _allMarkers {
-    final markers = Set<Marker>.from(_markers);
-
-    // Agregar marcador de ubicación del usuario si existe
-    if (_userLocation != null) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('user_location'),
-          position: _userLocation!,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueAzure,
-          ),
-          anchor: const Offset(0.5, 0.5),
-          infoWindow: const InfoWindow(title: 'Mi ubicación'),
-          zIndexInt: 999, // Siempre encima de otros marcadores
-        ),
-      );
-    }
-
-    return markers;
   }
 
   /// Maneja el toque en el mapa
@@ -455,6 +441,21 @@ class _MapPageState extends State<MapPage> {
       );
     }
 
+    // Agregar marcador de ubicación del usuario si existe
+    if (_userLocation != null) {
+      final userIcon = await MarkerGenerator.generateUserLocationMarker();
+      markers.add(
+        Marker(
+          markerId: const MarkerId('user_location'),
+          position: _userLocation!,
+          icon: userIcon,
+          anchor: const Offset(0.5, 0.5),
+          infoWindow: const InfoWindow(title: 'Mi ubicación'),
+          zIndexInt: 999, // Siempre encima de otros marcadores
+        ),
+      );
+    }
+
     return markers;
   }
 
@@ -469,7 +470,7 @@ class _MapPageState extends State<MapPage> {
             onMapCreated: (controller) {
               _mapController.complete(controller);
             },
-            markers: _allMarkers,
+            markers: _markers,
             // Desactivado para simulador (muestra California)
             // myLocationEnabled: true,
             myLocationEnabled: false,
@@ -605,7 +606,7 @@ class _MapPageState extends State<MapPage> {
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withValues(alpha: 0.1),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -940,7 +941,7 @@ class _StationPreviewCardState extends State<_StationPreviewCard> {
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.15),
+            color: Colors.black.withValues(alpha: 0.15),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -959,8 +960,8 @@ class _StationPreviewCardState extends State<_StationPreviewCard> {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: station.hasAvailableConnectors
-                        ? AppColors.stationAvailable.withOpacity(0.1)
-                        : AppColors.stationOccupied.withOpacity(0.1),
+                        ? AppColors.stationAvailable.withValues(alpha: 0.1)
+                        : AppColors.stationOccupied.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
