@@ -40,7 +40,25 @@ class GooglePlacesService {
   /// Cada página se factura, por eso se limita aquí.
   static const int _maxPages = 3;
 
+  // Identidad de la app para la restricción "Aplicaciones de Android" de la
+  // API key: las llamadas REST no la envían solas como el SDK de Maps.
+  // Huella SHA-1 de la clave de firma de Play (sin ":"); debe estar
+  // registrada en la restricción de la key en Google Cloud.
+  static const String _androidPackage = 'com.wherecargo.app';
+  static const String _androidCertSha1 =
+      '0938EB3A648639390898D4B49FF2EA486AFFE984';
+
   final http.Client _client;
+
+  static Map<String, String> _headers(String fieldMask) => {
+        HttpHeaders.contentTypeHeader: 'application/json',
+        'X-Goog-Api-Key': _apiKey,
+        'X-Goog-FieldMask': fieldMask,
+        if (Platform.isAndroid) ...{
+          'X-Android-Package': _androidPackage,
+          'X-Android-Cert': _androidCertSha1,
+        },
+      };
 
   GooglePlacesService({http.Client? client}) : _client = client ?? http.Client();
 
@@ -87,11 +105,7 @@ class GooglePlacesService {
         final response = await _client
             .post(
               Uri.parse('$_baseUrl/places:searchText'),
-              headers: {
-                HttpHeaders.contentTypeHeader: 'application/json',
-                'X-Goog-Api-Key': _apiKey,
-                'X-Goog-FieldMask': _fieldMask,
-              },
+              headers: _headers(_fieldMask),
               body: json.encode(body),
             )
             .timeout(const Duration(seconds: 10));
@@ -146,11 +160,7 @@ class GooglePlacesService {
       final response = await _client
           .post(
             Uri.parse('$_baseUrl/places:searchText'),
-            headers: {
-              HttpHeaders.contentTypeHeader: 'application/json',
-              'X-Goog-Api-Key': _apiKey,
-              'X-Goog-FieldMask': _placeFields,
-            },
+            headers: _headers(_placeFields),
             body: json.encode({
               'textQuery': name,
               'includedType': 'electric_vehicle_charging_station',
