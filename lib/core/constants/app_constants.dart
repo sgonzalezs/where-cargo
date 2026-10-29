@@ -5,6 +5,10 @@ class AppConstants {
   static const String appName = 'Where Cargo';
   // La versión de la app se define solo en pubspec.yaml
 
+  // Publicada con GitHub Pages desde docs/privacy-policy.html
+  static const String privacyPolicyUrl =
+      'https://sgonzalezs.github.io/where-cargo/privacy-policy.html';
+
   // Configuración de mapa: ubicación por defecto Medellín, Colombia
   static const String defaultLocationLabel = 'Medellín (por defecto)';
   static const double defaultLatitude = 6.2442;

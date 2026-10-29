@@ -2,36 +2,42 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../domain/models/vehicle.dart';
+import '../../domain/models/vehicle_catalog.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/vehicle_catalog_service.dart';
 import '../../../../shared/services/vehicle_service.dart';
+import '../widgets/vehicle_model_selector.dart';
 
 /// TextInputFormatter personalizado que limita números en un rango específico
 class RangeInputFormatter extends TextInputFormatter {
   final int maxValue;
-  
+
   RangeInputFormatter({required this.maxValue});
-  
+
   @override
-  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
     if (newValue.text.isEmpty) {
       return newValue;
     }
-    
+
     // Permitir solo dígitos
     if (!RegExp(r'^[0-9]*$').hasMatch(newValue.text)) {
       return oldValue;
     }
-    
+
     final intValue = int.tryParse(newValue.text);
     if (intValue == null) {
       return oldValue;
     }
-    
+
     // Si el valor excede el máximo, rechazar
     if (intValue > maxValue) {
       return oldValue;
     }
-    
+
     return newValue;
   }
 }
@@ -50,74 +56,40 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
   final _formKey = GlobalKey<FormState>();
   final VehicleService _vehicleService = VehicleService();
 
+  final _selectorKey = GlobalKey<VehicleModelSelectorState>();
+
   // Controllers
   late TextEditingController _nameController;
   late TextEditingController _yearController;
-  late TextEditingController _batteryCapacityController;
   late TextEditingController _currentBatteryController;
-  late TextEditingController _rangeController;
-  late TextEditingController _maxPowerController;
 
-  // Valores seleccionados
-  String? _selectedBrand;
-  String? _selectedModel;
   Set<String> _selectedConnectors = {};
+  VehicleCatalog? _catalog;
 
   bool _isSaving = false;
 
   bool get isEditing => widget.vehicle != null;
 
-  // Marcas y modelos populares de EVs
-  static const Map<String, List<String>> _brandsAndModels = {
-    'Tesla': ['Model 3', 'Model Y', 'Model S', 'Model X', 'Cybertruck', 'Roadster'],
-    'BYD': ['Dolphin', 'Seagull', 'Atto 3', 'Yuan Plus', 'Yuan Up', 'Han EV', 'Qin EV', 'Song Plus DM-i', 'Tang', 'Denza Y6'],
-    'Chevrolet': ['Bolt EV', 'Bolt EUV', 'Equinox EV', 'Blazer EV', 'Silverado EV', 'Tahoe EV'],
-    'Nissan': ['Leaf', 'Ariya', 'e-NV200'],
-    'Hyundai': ['Ioniq 5', 'Ioniq 6', 'Kona Electric', 'Ioniq 7', 'Tucson Hybrid', 'Venue Electric'],
-    'Kia': ['EV6', 'EV9', 'Niro EV', 'Soul EV', 'EV3', 'Sportage Plug-in'],
-    'Ford': ['Mustang Mach-E', 'F-150 Lightning', 'E-Transit', 'Explorer Hybrid'],
-    'Volkswagen': ['ID.4', 'ID.3', 'ID.Buzz', 'ID.5', 'ID.6', 'ID.7'],
-    'BMW': ['i4', 'iX', 'iX3', 'i7', 'i5', 'i3'],
-    'Mercedes-Benz': ['EQS', 'EQE', 'EQB', 'EQA', 'EQC', 'EQG'],
-    'Audi': ['e-tron', 'e-tron GT', 'Q4 e-tron', 'Q8 e-tron', 'Q6 e-tron', 'A6 e-tron'],
-    'Porsche': ['Taycan', 'Macan Electric'],
-    'Rivian': ['R1T', 'R1S', 'R2', 'R3'],
-    'Renault': ['Zoe', 'Megane E-Tech', 'Scenic E-Tech', 'Master Electric'],
-    'Peugeot': ['e-208', 'e-2008', 'e-308', 'e-3008', 'e-5008'],
-    'Volvo': ['XC40 Recharge', 'C40 Recharge', 'EX90'],
-    'Mazda': ['MX-30', 'MX-30 EV'],
-    'Otros': ['Otro modelo'],
-  };
-
-  // Tipos de conectores
-  static const List<Map<String, String>> _connectorTypes = [
-    {'id': 'ccs2', 'name': 'CCS2 (Combo 2)', 'desc': 'Carga rápida DC'},
-    {'id': 'ccs1', 'name': 'CCS1 (Combo 1)', 'desc': 'Carga rápida DC (US)'},
-    {'id': 'chademo', 'name': 'CHAdeMO', 'desc': 'Carga rápida DC (Japón)'},
-    {'id': 'type2', 'name': 'Type 2', 'desc': 'Carga AC estándar EU'},
-    {'id': 'type1', 'name': 'Type 1 (J1772)', 'desc': 'Carga AC estándar US'},
-    {'id': 'tesla', 'name': 'Tesla Supercharger', 'desc': 'Exclusivo Tesla'},
-    {'id': 'nacs', 'name': 'NACS', 'desc': 'Nuevo estándar Tesla'},
-  ];
-
   @override
   void initState() {
     super.initState();
     _initializeControllers();
+    VehicleCatalogService().load().then((catalog) {
+      if (mounted) setState(() => _catalog = catalog);
+    });
   }
 
   void _initializeControllers() {
     final v = widget.vehicle;
     _nameController = TextEditingController(text: v?.name ?? '');
-    _yearController = TextEditingController(text: v?.year.toString() ?? DateTime.now().year.toString());
-    _batteryCapacityController = TextEditingController(text: v?.batteryCapacityKwh.toStringAsFixed(0) ?? '');
-    _currentBatteryController = TextEditingController(text: v?.currentBatteryPercent.toStringAsFixed(0) ?? '100');
-    _rangeController = TextEditingController(text: v?.estimatedRangeKm?.toStringAsFixed(0) ?? '');
-    _maxPowerController = TextEditingController(text: v?.maxChargingPowerKw?.toStringAsFixed(0) ?? '');
+    _yearController = TextEditingController(
+      text: v?.year.toString() ?? DateTime.now().year.toString(),
+    );
+    _currentBatteryController = TextEditingController(
+      text: v?.currentBatteryPercent.toStringAsFixed(0) ?? '100',
+    );
 
     if (v != null) {
-      _selectedBrand = v.brand;
-      _selectedModel = v.model;
       _selectedConnectors = v.compatibleConnectors.toSet();
     }
   }
@@ -126,10 +98,7 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
   void dispose() {
     _nameController.dispose();
     _yearController.dispose();
-    _batteryCapacityController.dispose();
     _currentBatteryController.dispose();
-    _rangeController.dispose();
-    _maxPowerController.dispose();
     super.dispose();
   }
 
@@ -146,22 +115,29 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
             ),
         ],
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _buildBasicInfoSection(),
-            const SizedBox(height: 24),
-            _buildBatterySection(),
-            const SizedBox(height: 24),
-            _buildConnectorsSection(),
-            const SizedBox(height: 32),
-            _buildSaveButton(),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
+      body: _catalog == null
+          ? const Center(child: CircularProgressIndicator())
+          : Form(
+              key: _formKey,
+              // Column y no ListView: el ListView destruye las secciones que
+              // salen de pantalla y se perdería el estado del selector.
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildBasicInfoSection(),
+                    const SizedBox(height: 24),
+                    _buildBatterySection(),
+                    const SizedBox(height: 24),
+                    _buildConnectorsSection(),
+                    const SizedBox(height: 32),
+                    _buildSaveButton(),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 
@@ -179,13 +155,13 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
                 Text(
                   'Información del Vehículo',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            
+
             // Nombre (apodo)
             TextFormField(
               controller: _nameController,
@@ -197,40 +173,17 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
             ),
             const SizedBox(height: 16),
 
-            // Marca
-            DropdownButtonFormField<String>(
-              initialValue: _selectedBrand,
-              decoration: const InputDecoration(
-                labelText: 'Marca *',
-                prefixIcon: Icon(Icons.business),
-              ),
-              items: _brandsAndModels.keys.map((brand) {
-                return DropdownMenuItem(value: brand, child: Text(brand));
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedBrand = value;
-                  _selectedModel = null; // Reset model
-                });
+            VehicleModelSelector(
+              key: _selectorKey,
+              catalog: _catalog!,
+              initialVehicle: widget.vehicle,
+              onVariantChanged: (variant) {
+                if (variant != null) {
+                  setState(
+                    () => _selectedConnectors = variant.connectors.toSet(),
+                  );
+                }
               },
-              validator: (value) => value == null ? 'Selecciona una marca' : null,
-            ),
-            const SizedBox(height: 16),
-
-            // Modelo
-            DropdownButtonFormField<String>(
-              initialValue: _selectedModel,
-              decoration: const InputDecoration(
-                labelText: 'Modelo *',
-                prefixIcon: Icon(Icons.directions_car),
-              ),
-              items: (_brandsAndModels[_selectedBrand] ?? []).map((model) {
-                return DropdownMenuItem(value: model, child: Text(model));
-              }).toList(),
-              onChanged: _selectedBrand == null ? null : (value) {
-                setState(() => _selectedModel = value);
-              },
-              validator: (value) => value == null ? 'Selecciona un modelo' : null,
             ),
             const SizedBox(height: 16),
 
@@ -245,7 +198,9 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
               validator: (value) {
                 if (value == null || value.isEmpty) return 'Ingresa el año';
                 final year = int.tryParse(value);
-                if (year == null || year < 2010 || year > DateTime.now().year + 1) {
+                if (year == null ||
+                    year < 2010 ||
+                    year > DateTime.now().year + 1) {
                   return 'Año inválido';
                 }
                 return null;
@@ -266,36 +221,18 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
           children: [
             Row(
               children: [
-                const Icon(Icons.battery_charging_full, color: AppColors.success),
+                const Icon(
+                  Icons.battery_charging_full,
+                  color: AppColors.success,
+                ),
                 const SizedBox(width: 8),
                 Text(
-                  'Batería y Autonomía',
+                  'Nivel de Batería',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-
-            // Capacidad de batería
-            TextFormField(
-              controller: _batteryCapacityController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(
-                labelText: 'Capacidad de batería (kWh) *',
-                hintText: 'Ej: 60',
-                prefixIcon: Icon(Icons.battery_full),
-                suffixText: 'kWh',
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) return 'Ingresa la capacidad';
-                final capacity = double.tryParse(value);
-                if (capacity == null || capacity <= 0 || capacity > 300) {
-                  return 'Capacidad inválida';
-                }
-                return null;
-              },
             ),
             const SizedBox(height: 16),
 
@@ -322,52 +259,6 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
                 return null;
               },
             ),
-            const SizedBox(height: 16),
-
-            // Autonomía estimada
-            TextFormField(
-              controller: _rangeController,
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                RangeInputFormatter(maxValue: 9999),
-              ],
-              decoration: const InputDecoration(
-                labelText: 'Autonomía estimada (km)',
-                hintText: 'Ej: 400',
-                prefixIcon: Icon(Icons.route),
-                suffixText: 'km',
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) return null;
-                final range = int.tryParse(value);
-                if (range == null || range < 0 || range > 9999) {
-                  return 'Autonomía inválida (0-9999 km)';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-
-            // Potencia máxima de carga
-            TextFormField(
-              controller: _maxPowerController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Potencia máxima de carga (kW)',
-                hintText: 'Ej: 150',
-                prefixIcon: Icon(Icons.flash_on),
-                suffixText: 'kW',
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) return null;
-                final power = double.tryParse(value);
-                if (power == null || power < 0 || power > 350) {
-                  return 'Potencia inválida (0-350 kW)';
-                }
-                return null;
-              },
-            ),
           ],
         ),
       ),
@@ -388,39 +279,40 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
                 Text(
                   'Conectores Compatibles',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             const Text(
-              'Selecciona los tipos de conector que soporta tu vehículo',
+              'Se precargan según la versión elegida. Ajústalos si tu vehículo es distinto (p. ej. importado).',
               style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
             ),
             const SizedBox(height: 16),
-            
-            ...List.generate(_connectorTypes.length, (index) {
-              final connector = _connectorTypes[index];
-              final isSelected = _selectedConnectors.contains(connector['id']);
-              
+
+            ...vehicleConnectorOptions.map((connector) {
+              final isSelected = _selectedConnectors.contains(connector.id);
+
               return CheckboxListTile(
                 value: isSelected,
-                title: Text(connector['name']!),
+                title: Text(connector.name),
                 subtitle: Text(
-                  connector['desc']!,
+                  connector.description,
                   style: const TextStyle(fontSize: 12),
                 ),
                 secondary: Icon(
                   Icons.power,
-                  color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                  color: isSelected
+                      ? AppColors.primary
+                      : AppColors.textSecondary,
                 ),
                 onChanged: (value) {
                   setState(() {
                     if (value == true) {
-                      _selectedConnectors.add(connector['id']!);
+                      _selectedConnectors.add(connector.id);
                     } else {
-                      _selectedConnectors.remove(connector['id']!);
+                      _selectedConnectors.remove(connector.id);
                     }
                   });
                 },
@@ -459,7 +351,7 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
 
   Future<void> _saveVehicle() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     if (_selectedConnectors.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecciona al menos un conector')),
@@ -470,18 +362,19 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
     setState(() => _isSaving = true);
 
     try {
-      final vehicle = Vehicle(
-        id: widget.vehicle?.id ?? 'vehicle_${DateTime.now().millisecondsSinceEpoch}',
-        name: _nameController.text.trim().isEmpty ? null : _nameController.text.trim(),
-        brand: _selectedBrand!,
-        model: _selectedModel!,
+      final vehicle = _selectorKey.currentState!.buildVehicle(
+        id:
+            widget.vehicle?.id ??
+            'vehicle_${DateTime.now().millisecondsSinceEpoch}',
+        name: _nameController.text.trim().isEmpty
+            ? null
+            : _nameController.text.trim(),
         year: int.parse(_yearController.text),
-        batteryCapacityKwh: double.parse(_batteryCapacityController.text),
-        currentBatteryPercent: double.tryParse(_currentBatteryController.text) ?? 100,
-        estimatedRangeKm: double.tryParse(_rangeController.text),
-        compatibleConnectors: _selectedConnectors.toList(),
-        maxChargingPowerKw: double.tryParse(_maxPowerController.text),
+        currentBatteryPercent:
+            double.tryParse(_currentBatteryController.text) ?? 100,
+        connectors: _selectedConnectors.toList(),
         isPrimary: widget.vehicle?.isPrimary ?? false,
+        createdAt: widget.vehicle?.createdAt,
       );
 
       if (isEditing) {
@@ -494,15 +387,17 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isEditing ? 'Vehículo actualizado' : 'Vehículo agregado'),
+            content: Text(
+              isEditing ? 'Vehículo actualizado' : 'Vehículo agregado',
+            ),
           ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);

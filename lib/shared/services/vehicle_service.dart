@@ -4,9 +4,13 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/vehicle_sync/domain/models/vehicle.dart';
+import '../../features/vehicle_sync/domain/models/vehicle_catalog.dart';
+import 'user_data_repository.dart';
+import 'vehicle_catalog_service.dart';
 
 /// Servicio singleton para gestionar vehículos del usuario
-/// Persiste los datos localmente usando SharedPreferences
+/// Persiste los datos localmente usando SharedPreferences y, si hay sesión
+/// iniciada, los sincroniza con Firestore.
 class VehicleService extends ChangeNotifier {
   // Singleton
   static final VehicleService _instance = VehicleService._internal();
@@ -20,6 +24,10 @@ class VehicleService extends ChangeNotifier {
   List<Vehicle> _vehicles = [];
   bool _isLoaded = false;
   bool _isLoading = false;
+
+  // Usuario con sesión iniciada (null = solo almacenamiento local)
+  String? _uid;
+  UserDataRepository? _remote;
 
   /// Lista de vehículos del usuario
   List<Vehicle> get vehicles => List.unmodifiable(_vehicles);
@@ -61,6 +69,13 @@ class VehicleService extends ChangeNotifier {
         _vehicles = jsonList
             .map((item) => Vehicle.fromJson(item as Map<String, dynamic>))
             .toList();
+
+        if (_linkVehicles(await VehicleCatalogService().load())) {
+          await prefs.setString(
+            _vehiclesKey,
+            json.encode(_vehicles.map((v) => v.toJson()).toList()),
+          );
+        }
       }
 
       _isLoaded = true;
@@ -114,6 +129,7 @@ class VehicleService extends ChangeNotifier {
 
     notifyListeners();
     await _saveVehicles();
+    _syncRemote((repo, uid) => repo.deleteVehicle(uid, vehicleId));
     return true;
   }
 
@@ -128,13 +144,12 @@ class VehicleService extends ChangeNotifier {
   }
 
   /// Actualiza el nivel de batería de un vehículo
-  Future<void> updateBatteryLevel(String vehicleId, double percent, {double? rangeKm}) async {
+  Future<void> updateBatteryLevel(String vehicleId, double percent) async {
     final index = _vehicles.indexWhere((v) => v.id == vehicleId);
     if (index == -1) return;
 
     _vehicles[index] = _vehicles[index].copyWith(
       currentBatteryPercent: percent.clamp(0, 100),
-      estimatedRangeKm: rangeKm,
     );
 
     notifyListeners();
@@ -150,7 +165,7 @@ class VehicleService extends ChangeNotifier {
     }
   }
 
-  /// Guarda los vehículos en almacenamiento local
+  /// Guarda los vehículos en almacenamiento local y, con sesión, en Firestore
   Future<void> _saveVehicles() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -159,6 +174,93 @@ class VehicleService extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error saving vehicles: $e');
     }
+    final snapshot = List.of(_vehicles);
+    _syncRemote((repo, uid) => repo.saveVehicles(uid, snapshot));
+  }
+
+  /// Asocia los vehículos a la cuenta con sesión iniciada ([uid] null al
+  /// cerrar sesión). Los vehículos que solo estaban en el teléfono se suben
+  /// y los que solo estaban en la cuenta se descargan.
+  Future<void> attachUser(String? uid) async {
+    _uid = uid;
+    if (uid == null) return;
+    final repo = _remote ??= UserDataRepository();
+    try {
+      await loadVehicles();
+      final remote = await repo.fetchVehicles(uid);
+      if (_uid != uid) return; // cambió la sesión mientras tanto
+
+      final localIds = _vehicles.map((v) => v.id).toSet();
+      final downloaded = remote.where((v) => !localIds.contains(v.id));
+      if (downloaded.isNotEmpty) {
+        final hasPrimary = _vehicles.any((v) => v.isPrimary);
+        _vehicles.addAll(
+          hasPrimary
+              ? downloaded.map((v) => v.copyWith(isPrimary: false))
+              : downloaded,
+        );
+        notifyListeners();
+      }
+      await _saveVehicles();
+    } catch (e) {
+      debugPrint('[WhereCargo] Error sincronizando vehículos: $e');
+    }
+  }
+
+  /// Ejecuta una escritura en Firestore si hay sesión. No se espera: Firestore
+  /// la encola sin conexión y la envía cuando vuelve la red.
+  void _syncRemote(
+    Future<void> Function(UserDataRepository repo, String uid) write,
+  ) {
+    final uid = _uid;
+    final repo = _remote;
+    if (uid == null || repo == null) return;
+    write(repo, uid).catchError((Object e) {
+      debugPrint('[WhereCargo] Error sincronizando vehículos: $e');
+    });
+  }
+
+  /// Enlaza al catálogo los vehículos personalizados cuyo modelo se agregó
+  /// después (llamar cuando se descarga un catálogo nuevo).
+  Future<void> relinkVehicles() async {
+    await loadVehicles();
+    if (!_linkVehicles(VehicleCatalogService().catalog)) return;
+    notifyListeners();
+    await _saveVehicles();
+  }
+
+  bool _linkVehicles(VehicleCatalog catalog) {
+    final linked = _vehicles.map((v) => linkToCatalog(v, catalog)).toList();
+    final changed =
+        linked.indexed.any((e) => !identical(e.$2, _vehicles[e.$1]));
+    if (changed) _vehicles = linked;
+    return changed;
+  }
+
+  /// Vehículos sin modelo del catálogo (guardados antes de existir o como
+  /// "Otro modelo"): si el modelo existe en el catálogo se enlaza a la versión con la batería
+  /// más parecida y se conservan los conectores que eligió el usuario.
+  @visibleForTesting
+  static Vehicle linkToCatalog(Vehicle vehicle, VehicleCatalog catalog) {
+    if (vehicle.modelId != null) return vehicle;
+    final model = catalog.match(vehicle.brand, vehicle.model);
+    final brand = model == null ? null : catalog.brandById(model.brandId);
+    if (model == null || brand == null) return vehicle;
+    return Vehicle.fromCatalog(
+      id: vehicle.id,
+      name: vehicle.name,
+      brand: brand,
+      model: model,
+      variant: model.closestVariant(vehicle.batteryCapacityKwh),
+      year: vehicle.year,
+      currentBatteryPercent: vehicle.currentBatteryPercent,
+      connectors: vehicle.compatibleConnectors
+          .map((c) => c == 'nacs' ? 'tesla' : c)
+          .toSet()
+          .toList(),
+      isPrimary: vehicle.isPrimary,
+      createdAt: vehicle.createdAt,
+    );
   }
 
   /// Limpia todos los vehículos

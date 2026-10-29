@@ -1,23 +1,39 @@
-/// Modelo de vehículo eléctrico del usuario
+import 'vehicle_catalog.dart';
+
+/// Vehículo eléctrico del usuario.
+///
+/// Si [modelId] y [variantId] apuntan al catálogo, las especificaciones
+/// (batería, autonomía, potencia) vienen de allí y en la nube solo se guarda
+/// la referencia. Si son null es un vehículo personalizado ("Otro modelo")
+/// y sus especificaciones las escribió el usuario.
 class Vehicle {
   final String id;
   final String? name;
+  final String? modelId;
+  final String? variantId;
   final String brand;
   final String model;
+  final String? variantName;
   final int year;
   final double batteryCapacityKwh;
   final double currentBatteryPercent;
+
+  /// Autonomía con la batería al 100 %.
   final double? estimatedRangeKm;
   final List<String> compatibleConnectors;
   final double? maxChargingPowerKw;
   final String? imageUrl;
   final bool isPrimary;
+  final DateTime createdAt;
 
-  const Vehicle({
+  Vehicle({
     required this.id,
     this.name,
+    this.modelId,
+    this.variantId,
     required this.brand,
     required this.model,
+    this.variantName,
     required this.year,
     required this.batteryCapacityKwh,
     required this.currentBatteryPercent,
@@ -26,14 +42,62 @@ class Vehicle {
     this.maxChargingPowerKw,
     this.imageUrl,
     this.isPrimary = false,
-  });
+    DateTime? createdAt,
+  }) : createdAt = createdAt ?? _createdAtFromId(id) ?? DateTime.now();
+
+  /// Vehículo del catálogo. [connectors] permite ajustar los conectores de
+  /// la versión (p. ej. un vehículo importado con otro estándar).
+  factory Vehicle.fromCatalog({
+    required String id,
+    String? name,
+    required VehicleBrand brand,
+    required VehicleModel model,
+    required VehicleVariant variant,
+    required int year,
+    double currentBatteryPercent = 100,
+    List<String>? connectors,
+    bool isPrimary = false,
+    DateTime? createdAt,
+  }) {
+    return Vehicle(
+      id: id,
+      name: name,
+      modelId: model.id,
+      variantId: variant.id,
+      brand: brand.name,
+      model: model.name,
+      variantName: variant.name,
+      year: year,
+      batteryCapacityKwh: variant.batteryKwh,
+      currentBatteryPercent: currentBatteryPercent,
+      estimatedRangeKm: variant.rangeKm,
+      compatibleConnectors: connectors ?? variant.connectors,
+      maxChargingPowerKw: variant.maxDcKw,
+      isPrimary: isPrimary,
+      createdAt: createdAt,
+    );
+  }
+
+  /// Los ids son `vehicle_<milisegundos>`: sirve como fecha de creación
+  /// para los vehículos guardados antes de existir [createdAt].
+  static DateTime? _createdAtFromId(String id) {
+    final millis = int.tryParse(id.replaceFirst('vehicle_', ''));
+    return millis == null ? null : DateTime.fromMillisecondsSinceEpoch(millis);
+  }
+
+  bool get isFromCatalog => modelId != null && variantId != null;
 
   /// Calcula la energía restante en kWh
   double get currentBatteryKwh => batteryCapacityKwh * (currentBatteryPercent / 100);
 
   /// Calcula cuánta energía se necesita para llegar al 100%
-  double get energyNeededForFullCharge => 
+  double get energyNeededForFullCharge =>
       batteryCapacityKwh - currentBatteryKwh;
+
+  /// Autonomía con el nivel de batería actual.
+  double? get currentRangeKm => estimatedRangeKm == null
+      ? null
+      : estimatedRangeKm! * currentBatteryPercent / 100;
 
   /// Estima el tiempo de carga dado un cargador
   Duration estimateChargingTime(double chargerPowerKw, {double targetPercent = 80}) {
@@ -53,8 +117,9 @@ class Vehicle {
 
   /// Verifica si puede llegar a cierta distancia con la carga actual
   bool canReachDistance(double distanceKm) {
-    if (estimatedRangeKm == null) return true; // No sabemos, asumimos que sí
-    return estimatedRangeKm! >= distanceKm;
+    final range = currentRangeKm;
+    if (range == null) return true; // No sabemos, asumimos que sí
+    return range >= distanceKm;
   }
 
   /// Calcula el porcentaje de batería restante después de un viaje
@@ -62,17 +127,23 @@ class Vehicle {
     if (estimatedRangeKm == null || estimatedRangeKm == 0) {
       return currentBatteryPercent;
     }
-    
-    final percentUsed = (distanceKm / estimatedRangeKm!) * currentBatteryPercent;
+
+    final percentUsed = distanceKm / estimatedRangeKm! * 100;
     return (currentBatteryPercent - percentUsed).clamp(0, 100);
   }
 
+  /// Formato local (SharedPreferences): incluye las especificaciones ya
+  /// resueltas para mostrarlas sin consultar el catálogo.
   factory Vehicle.fromJson(Map<String, dynamic> json) {
+    final createdAt = json['created_at'] as String?;
     return Vehicle(
       id: json['id'] as String,
       name: json['name'] as String?,
+      modelId: json['model_id'] as String?,
+      variantId: json['variant_id'] as String?,
       brand: json['brand'] as String,
       model: json['model'] as String,
+      variantName: json['variant_name'] as String?,
       year: json['year'] as int,
       batteryCapacityKwh: (json['battery_capacity_kwh'] as num).toDouble(),
       currentBatteryPercent: (json['current_battery_percent'] as num).toDouble(),
@@ -87,6 +158,7 @@ class Vehicle {
           : null,
       imageUrl: json['image_url'] as String?,
       isPrimary: json['is_primary'] as bool? ?? false,
+      createdAt: createdAt != null ? DateTime.tryParse(createdAt) : null,
     );
   }
 
@@ -94,8 +166,11 @@ class Vehicle {
     return {
       'id': id,
       'name': name,
+      'model_id': modelId,
+      'variant_id': variantId,
       'brand': brand,
       'model': model,
+      'variant_name': variantName,
       'year': year,
       'battery_capacity_kwh': batteryCapacityKwh,
       'current_battery_percent': currentBatteryPercent,
@@ -104,38 +179,44 @@ class Vehicle {
       'max_charging_power_kw': maxChargingPowerKw,
       'image_url': imageUrl,
       'is_primary': isPrimary,
+      'created_at': createdAt.toIso8601String(),
     };
   }
 
+  /// Copia el vehículo. Las especificaciones de catálogo no se cambian aquí:
+  /// para cambiar de modelo se crea con [Vehicle.fromCatalog].
   Vehicle copyWith({
     String? id,
     String? name,
-    String? brand,
-    String? model,
     int? year,
-    double? batteryCapacityKwh,
     double? currentBatteryPercent,
-    double? estimatedRangeKm,
     List<String>? compatibleConnectors,
-    double? maxChargingPowerKw,
     String? imageUrl,
     bool? isPrimary,
   }) {
     return Vehicle(
       id: id ?? this.id,
       name: name ?? this.name,
-      brand: brand ?? this.brand,
-      model: model ?? this.model,
+      modelId: modelId,
+      variantId: variantId,
+      brand: brand,
+      model: model,
+      variantName: variantName,
       year: year ?? this.year,
-      batteryCapacityKwh: batteryCapacityKwh ?? this.batteryCapacityKwh,
+      batteryCapacityKwh: batteryCapacityKwh,
       currentBatteryPercent: currentBatteryPercent ?? this.currentBatteryPercent,
-      estimatedRangeKm: estimatedRangeKm ?? this.estimatedRangeKm,
+      estimatedRangeKm: estimatedRangeKm,
       compatibleConnectors: compatibleConnectors ?? this.compatibleConnectors,
-      maxChargingPowerKw: maxChargingPowerKw ?? this.maxChargingPowerKw,
+      maxChargingPowerKw: maxChargingPowerKw,
       imageUrl: imageUrl ?? this.imageUrl,
       isPrimary: isPrimary ?? this.isPrimary,
+      createdAt: createdAt,
     );
   }
+
+  /// Marca, modelo y versión, p. ej. "BYD Dolphin 44.9 kWh".
+  String get fullModelName =>
+      [brand, model, if (variantName != null) variantName].join(' ');
 
   String get displayName => name ?? '$brand $model';
 

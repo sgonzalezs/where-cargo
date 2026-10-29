@@ -1,0 +1,370 @@
+{
+  "version": 1,
+  "brands": [
+    { "id": "audi", "name": "Audi" },
+    { "id": "bmw", "name": "BMW" },
+    { "id": "byd", "name": "BYD" },
+    { "id": "chevrolet", "name": "Chevrolet" },
+    { "id": "fiat", "name": "Fiat" },
+    { "id": "ford", "name": "Ford" },
+    { "id": "hyundai", "name": "Hyundai" },
+    { "id": "jac", "name": "JAC" },
+    { "id": "jaguar", "name": "Jaguar" },
+    { "id": "kia", "name": "Kia" },
+    { "id": "mazda", "name": "Mazda" },
+    { "id": "mercedes_benz", "name": "Mercedes-Benz" },
+    { "id": "mg", "name": "MG" },
+    { "id": "mini", "name": "MINI" },
+    { "id": "nissan", "name": "Nissan" },
+    { "id": "peugeot", "name": "Peugeot" },
+    { "id": "porsche", "name": "Porsche" },
+    { "id": "renault", "name": "Renault" },
+    { "id": "tesla", "name": "Tesla" },
+    { "id": "volkswagen", "name": "Volkswagen" },
+    { "id": "volvo", "name": "Volvo" },
+    { "id": "zeekr", "name": "Zeekr" }
+  ],
+  "models": [
+    {
+      "id": "audi_q4_etron", "brand_id": "audi", "name": "Q4 e-tron",
+      "variants": [
+        { "id": "77", "name": "77 kWh", "battery_kwh": 77, "range_km": 520, "max_dc_kw": 135, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "audi_q8_etron", "brand_id": "audi", "name": "Q8 e-tron (e-tron)",
+      "variants": [
+        { "id": "95", "name": "95 kWh", "battery_kwh": 95, "range_km": 440, "max_dc_kw": 150, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] },
+        { "id": "114", "name": "114 kWh", "battery_kwh": 114, "range_km": 580, "max_dc_kw": 170, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "audi_etron_gt", "brand_id": "audi", "name": "e-tron GT",
+      "variants": [
+        { "id": "93", "name": "93 kWh", "battery_kwh": 93.4, "range_km": 488, "max_dc_kw": 270, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "bmw_i4", "brand_id": "bmw", "name": "i4",
+      "variants": [
+        { "id": "edrive40", "name": "eDrive40", "battery_kwh": 81.3, "range_km": 590, "max_dc_kw": 205, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] },
+        { "id": "m50", "name": "M50", "battery_kwh": 81.3, "range_km": 520, "max_dc_kw": 205, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "bmw_ix", "brand_id": "bmw", "name": "iX",
+      "variants": [
+        { "id": "xdrive40", "name": "xDrive40", "battery_kwh": 76.6, "range_km": 425, "max_dc_kw": 150, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] },
+        { "id": "xdrive50", "name": "xDrive50", "battery_kwh": 111.5, "range_km": 630, "max_dc_kw": 195, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "bmw_ix1", "brand_id": "bmw", "name": "iX1",
+      "variants": [
+        { "id": "xdrive30", "name": "xDrive30", "battery_kwh": 64.7, "range_km": 440, "max_dc_kw": 130, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "bmw_ix3", "brand_id": "bmw", "name": "iX3",
+      "variants": [
+        { "id": "80", "name": "80 kWh", "battery_kwh": 80, "range_km": 460, "max_dc_kw": 150, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "byd_dolphin_mini", "brand_id": "byd", "name": "Dolphin Mini (Seagull)",
+      "variants": [
+        { "id": "38", "name": "38 kWh", "battery_kwh": 38, "range_km": 300, "max_dc_kw": 40, "max_ac_kw": 7, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "byd_dolphin", "brand_id": "byd", "name": "Dolphin",
+      "variants": [
+        { "id": "45", "name": "44.9 kWh", "battery_kwh": 44.9, "range_km": 340, "max_dc_kw": 60, "max_ac_kw": 7, "connectors": ["ccs2", "type2"] },
+        { "id": "60", "name": "60.4 kWh", "battery_kwh": 60.4, "range_km": 427, "max_dc_kw": 88, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "byd_yuan_up", "brand_id": "byd", "name": "Yuan Up (Atto 2)",
+      "variants": [
+        { "id": "45", "name": "45.1 kWh", "battery_kwh": 45.1, "range_km": 312, "max_dc_kw": 65, "max_ac_kw": 7, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "byd_yuan_plus", "brand_id": "byd", "name": "Yuan Plus (Atto 3)",
+      "variants": [
+        { "id": "60", "name": "60.5 kWh", "battery_kwh": 60.5, "range_km": 420, "max_dc_kw": 88, "max_ac_kw": 7, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "byd_seal", "brand_id": "byd", "name": "Seal",
+      "variants": [
+        { "id": "rwd", "name": "82.5 kWh RWD", "battery_kwh": 82.5, "range_km": 570, "max_dc_kw": 150, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] },
+        { "id": "awd", "name": "82.5 kWh AWD", "battery_kwh": 82.5, "range_km": 520, "max_dc_kw": 150, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "byd_han", "brand_id": "byd", "name": "Han EV",
+      "variants": [
+        { "id": "85", "name": "85.4 kWh", "battery_kwh": 85.4, "range_km": 521, "max_dc_kw": 120, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "byd_tang", "brand_id": "byd", "name": "Tang EV",
+      "variants": [
+        { "id": "108", "name": "108.8 kWh", "battery_kwh": 108.8, "range_km": 400, "max_dc_kw": 170, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "chevrolet_bolt_ev", "brand_id": "chevrolet", "name": "Bolt EV",
+      "variants": [
+        { "id": "65", "name": "65 kWh", "battery_kwh": 65, "range_km": 416, "max_dc_kw": 55, "max_ac_kw": 11, "connectors": ["ccs1", "type1"] }
+      ]
+    },
+    {
+      "id": "chevrolet_bolt_euv", "brand_id": "chevrolet", "name": "Bolt EUV",
+      "variants": [
+        { "id": "65", "name": "65 kWh", "battery_kwh": 65, "range_km": 397, "max_dc_kw": 55, "max_ac_kw": 11, "connectors": ["ccs1", "type1"] }
+      ]
+    },
+    {
+      "id": "chevrolet_equinox_ev", "brand_id": "chevrolet", "name": "Equinox EV",
+      "variants": [
+        { "id": "85", "name": "85 kWh", "battery_kwh": 85, "range_km": 513, "max_dc_kw": 150, "max_ac_kw": 11.5, "connectors": ["ccs1", "type1"] }
+      ]
+    },
+    {
+      "id": "fiat_500e", "brand_id": "fiat", "name": "500e",
+      "variants": [
+        { "id": "42", "name": "42 kWh", "battery_kwh": 42, "range_km": 320, "max_dc_kw": 85, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "ford_mustang_mach_e", "brand_id": "ford", "name": "Mustang Mach-E",
+      "variants": [
+        { "id": "sr", "name": "Standard Range", "battery_kwh": 72, "range_km": 440, "max_dc_kw": 115, "max_ac_kw": 11, "connectors": ["ccs1", "type1"] },
+        { "id": "er", "name": "Extended Range", "battery_kwh": 91, "range_km": 600, "max_dc_kw": 150, "max_ac_kw": 11, "connectors": ["ccs1", "type1"] }
+      ]
+    },
+    {
+      "id": "hyundai_ioniq_5", "brand_id": "hyundai", "name": "Ioniq 5",
+      "variants": [
+        { "id": "58", "name": "58 kWh", "battery_kwh": 58, "range_km": 384, "max_dc_kw": 175, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] },
+        { "id": "77", "name": "77.4 kWh", "battery_kwh": 77.4, "range_km": 481, "max_dc_kw": 235, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "hyundai_ioniq_6", "brand_id": "hyundai", "name": "Ioniq 6",
+      "variants": [
+        { "id": "77", "name": "77.4 kWh", "battery_kwh": 77.4, "range_km": 614, "max_dc_kw": 235, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "hyundai_kona_electric", "brand_id": "hyundai", "name": "Kona Electric",
+      "variants": [
+        { "id": "39", "name": "39.2 kWh", "battery_kwh": 39.2, "range_km": 305, "max_dc_kw": 50, "max_ac_kw": 7.2, "connectors": ["ccs2", "type2"] },
+        { "id": "64", "name": "64 kWh", "battery_kwh": 64, "range_km": 484, "max_dc_kw": 77, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "jac_e10x", "brand_id": "jac", "name": "E10X",
+      "variants": [
+        { "id": "31", "name": "31.4 kWh", "battery_kwh": 31.4, "range_km": 300, "max_dc_kw": 30, "max_ac_kw": 6.6, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "jaguar_i_pace", "brand_id": "jaguar", "name": "I-Pace",
+      "variants": [
+        { "id": "90", "name": "90 kWh", "battery_kwh": 90, "range_km": 470, "max_dc_kw": 100, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "kia_ev3", "brand_id": "kia", "name": "EV3",
+      "variants": [
+        { "id": "58", "name": "58.3 kWh", "battery_kwh": 58.3, "range_km": 436, "max_dc_kw": 101, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] },
+        { "id": "81", "name": "81.4 kWh", "battery_kwh": 81.4, "range_km": 605, "max_dc_kw": 128, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "kia_ev5", "brand_id": "kia", "name": "EV5",
+      "variants": [
+        { "id": "88", "name": "88 kWh", "battery_kwh": 88, "range_km": 530, "max_dc_kw": 140, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "kia_ev6", "brand_id": "kia", "name": "EV6",
+      "variants": [
+        { "id": "58", "name": "58 kWh", "battery_kwh": 58, "range_km": 394, "max_dc_kw": 175, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] },
+        { "id": "77", "name": "77.4 kWh", "battery_kwh": 77.4, "range_km": 528, "max_dc_kw": 233, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "kia_ev9", "brand_id": "kia", "name": "EV9",
+      "variants": [
+        { "id": "99", "name": "99.8 kWh", "battery_kwh": 99.8, "range_km": 563, "max_dc_kw": 210, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "kia_niro_ev", "brand_id": "kia", "name": "Niro EV",
+      "variants": [
+        { "id": "64", "name": "64.8 kWh", "battery_kwh": 64.8, "range_km": 460, "max_dc_kw": 72, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "mazda_mx30", "brand_id": "mazda", "name": "MX-30",
+      "variants": [
+        { "id": "35", "name": "35.5 kWh", "battery_kwh": 35.5, "range_km": 200, "max_dc_kw": 50, "max_ac_kw": 6.6, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "mercedes_benz_eqa", "brand_id": "mercedes_benz", "name": "EQA",
+      "variants": [
+        { "id": "66", "name": "66.5 kWh", "battery_kwh": 66.5, "range_km": 425, "max_dc_kw": 100, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "mercedes_benz_eqb", "brand_id": "mercedes_benz", "name": "EQB",
+      "variants": [
+        { "id": "66", "name": "66.5 kWh", "battery_kwh": 66.5, "range_km": 400, "max_dc_kw": 100, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "mercedes_benz_eqe", "brand_id": "mercedes_benz", "name": "EQE",
+      "variants": [
+        { "id": "89", "name": "89 kWh", "battery_kwh": 89, "range_km": 600, "max_dc_kw": 170, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "mercedes_benz_eqs", "brand_id": "mercedes_benz", "name": "EQS",
+      "variants": [
+        { "id": "108", "name": "107.8 kWh", "battery_kwh": 107.8, "range_km": 750, "max_dc_kw": 200, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "mg_mg4", "brand_id": "mg", "name": "MG4",
+      "variants": [
+        { "id": "51", "name": "51 kWh", "battery_kwh": 51, "range_km": 350, "max_dc_kw": 117, "max_ac_kw": 6.6, "connectors": ["ccs2", "type2"] },
+        { "id": "64", "name": "64 kWh", "battery_kwh": 64, "range_km": 450, "max_dc_kw": 135, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "mg_zs_ev", "brand_id": "mg", "name": "ZS EV",
+      "variants": [
+        { "id": "51", "name": "51 kWh", "battery_kwh": 51, "range_km": 320, "max_dc_kw": 76, "max_ac_kw": 7, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "mini_cooper_electric", "brand_id": "mini", "name": "Cooper Eléctrico",
+      "variants": [
+        { "id": "se_2020", "name": "Cooper SE (2020-2023)", "battery_kwh": 32.6, "range_km": 234, "max_dc_kw": 50, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] },
+        { "id": "se_2024", "name": "Cooper SE (2024+)", "battery_kwh": 54.2, "range_km": 402, "max_dc_kw": 95, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "nissan_leaf", "brand_id": "nissan", "name": "Leaf",
+      "variants": [
+        { "id": "40", "name": "40 kWh", "battery_kwh": 40, "range_km": 270, "max_dc_kw": 50, "max_ac_kw": 6.6, "connectors": ["chademo", "type1"] },
+        { "id": "62", "name": "e+ 62 kWh", "battery_kwh": 62, "range_km": 385, "max_dc_kw": 100, "max_ac_kw": 6.6, "connectors": ["chademo", "type1"] }
+      ]
+    },
+    {
+      "id": "nissan_ariya", "brand_id": "nissan", "name": "Ariya",
+      "variants": [
+        { "id": "63", "name": "63 kWh", "battery_kwh": 63, "range_km": 403, "max_dc_kw": 130, "max_ac_kw": 7.4, "connectors": ["ccs2", "type2"] },
+        { "id": "87", "name": "87 kWh", "battery_kwh": 87, "range_km": 533, "max_dc_kw": 130, "max_ac_kw": 7.4, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "peugeot_e208", "brand_id": "peugeot", "name": "e-208",
+      "variants": [
+        { "id": "50", "name": "50 kWh", "battery_kwh": 50, "range_km": 362, "max_dc_kw": 100, "max_ac_kw": 7.4, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "peugeot_e2008", "brand_id": "peugeot", "name": "e-2008",
+      "variants": [
+        { "id": "54", "name": "54 kWh", "battery_kwh": 54, "range_km": 406, "max_dc_kw": 100, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "porsche_taycan", "brand_id": "porsche", "name": "Taycan",
+      "variants": [
+        { "id": "93", "name": "93.4 kWh", "battery_kwh": 93.4, "range_km": 484, "max_dc_kw": 270, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "porsche_macan_electric", "brand_id": "porsche", "name": "Macan Electric",
+      "variants": [
+        { "id": "100", "name": "100 kWh", "battery_kwh": 100, "range_km": 613, "max_dc_kw": 270, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "renault_kwid_etech", "brand_id": "renault", "name": "Kwid E-Tech",
+      "variants": [
+        { "id": "27", "name": "26.8 kWh", "battery_kwh": 26.8, "range_km": 220, "max_dc_kw": 30, "max_ac_kw": 7, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "renault_zoe", "brand_id": "renault", "name": "Zoe",
+      "variants": [
+        { "id": "52", "name": "52 kWh", "battery_kwh": 52, "range_km": 395, "max_dc_kw": 50, "max_ac_kw": 22, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "renault_megane_etech", "brand_id": "renault", "name": "Megane E-Tech",
+      "variants": [
+        { "id": "60", "name": "60 kWh", "battery_kwh": 60, "range_km": 450, "max_dc_kw": 130, "max_ac_kw": 22, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "tesla_model_3", "brand_id": "tesla", "name": "Model 3",
+      "variants": [
+        { "id": "rwd", "name": "RWD", "battery_kwh": 60, "range_km": 513, "max_dc_kw": 170, "max_ac_kw": 11, "connectors": ["tesla", "ccs2", "type2"] },
+        { "id": "long_range", "name": "Long Range", "battery_kwh": 75, "range_km": 629, "max_dc_kw": 250, "max_ac_kw": 11, "connectors": ["tesla", "ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "tesla_model_y", "brand_id": "tesla", "name": "Model Y",
+      "variants": [
+        { "id": "rwd", "name": "RWD", "battery_kwh": 60, "range_km": 455, "max_dc_kw": 170, "max_ac_kw": 11, "connectors": ["tesla", "ccs2", "type2"] },
+        { "id": "long_range", "name": "Long Range", "battery_kwh": 75, "range_km": 533, "max_dc_kw": 250, "max_ac_kw": 11, "connectors": ["tesla", "ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "volkswagen_id4", "brand_id": "volkswagen", "name": "ID.4",
+      "variants": [
+        { "id": "77", "name": "77 kWh", "battery_kwh": 77, "range_km": 520, "max_dc_kw": 135, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "volvo_ex30", "brand_id": "volvo", "name": "EX30",
+      "variants": [
+        { "id": "51", "name": "51 kWh", "battery_kwh": 51, "range_km": 344, "max_dc_kw": 134, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] },
+        { "id": "69", "name": "69 kWh", "battery_kwh": 69, "range_km": 476, "max_dc_kw": 153, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "volvo_ex40", "brand_id": "volvo", "name": "EX40 (XC40 Recharge)",
+      "variants": [
+        { "id": "79", "name": "79 kWh", "battery_kwh": 79, "range_km": 475, "max_dc_kw": 200, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "volvo_ec40", "brand_id": "volvo", "name": "EC40 (C40 Recharge)",
+      "variants": [
+        { "id": "79", "name": "79 kWh", "battery_kwh": 79, "range_km": 500, "max_dc_kw": 200, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "zeekr_001", "brand_id": "zeekr", "name": "001",
+      "variants": [
+        { "id": "100", "name": "100 kWh", "battery_kwh": 100, "range_km": 620, "max_dc_kw": 200, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    },
+    {
+      "id": "zeekr_x", "brand_id": "zeekr", "name": "X",
+      "variants": [
+        { "id": "66", "name": "66 kWh", "battery_kwh": 66, "range_km": 446, "max_dc_kw": 150, "max_ac_kw": 11, "connectors": ["ccs2", "type2"] }
+      ]
+    }
+  ]
+}

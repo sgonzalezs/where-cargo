@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/onboarding_service.dart';
 import '../../../../shared/services/vehicle_service.dart';
-import '../../../vehicle_sync/domain/models/vehicle.dart';
+import '../../../../shared/services/vehicle_catalog_service.dart';
+import '../../../vehicle_sync/domain/models/vehicle_catalog.dart';
+import '../../../vehicle_sync/presentation/widgets/vehicle_model_selector.dart';
 
 /// Página de onboarding para usuarios nuevos
 class OnboardingPage extends StatefulWidget {
@@ -323,39 +325,18 @@ class _VehicleSlide extends StatefulWidget {
 class _VehicleSlideState extends State<_VehicleSlide> {
   final _formKey = GlobalKey<FormState>();
 
-  String? _selectedBrand;
-  String? _selectedModel;
-  final TextEditingController _batteryController = TextEditingController();
+  final _selectorKey = GlobalKey<VehicleModelSelectorState>();
   final Set<String> _selectedConnectors = {};
+  VehicleCatalog? _catalog;
 
   bool _isSaving = false;
 
-  // Marcas y modelos populares
-  static const Map<String, List<String>> _brandsAndModels = {
-    'Tesla': ['Model 3', 'Model Y', 'Model S', 'Model X'],
-    'BYD': ['Dolphin', 'Seal', 'Atto 3', 'Han'],
-    'Chevrolet': ['Bolt EV', 'Bolt EUV', 'Equinox EV'],
-    'Nissan': ['Leaf', 'Ariya'],
-    'Hyundai': ['Ioniq 5', 'Ioniq 6', 'Kona Electric'],
-    'Kia': ['EV6', 'EV9', 'Niro EV'],
-    'Ford': ['Mustang Mach-E', 'F-150 Lightning'],
-    'Volkswagen': ['ID.4', 'ID.3', 'ID.Buzz'],
-    'BMW': ['i4', 'iX', 'iX3'],
-    'Otro': ['Otro modelo'],
-  };
-
-  // Conectores más comunes
-  static const List<Map<String, String>> _connectorTypes = [
-    {'id': 'ccs2', 'name': 'CCS2'},
-    {'id': 'type2', 'name': 'Type 2'},
-    {'id': 'chademo', 'name': 'CHAdeMO'},
-    {'id': 'tesla', 'name': 'Tesla'},
-  ];
-
   @override
-  void dispose() {
-    _batteryController.dispose();
-    super.dispose();
+  void initState() {
+    super.initState();
+    VehicleCatalogService().load().then((catalog) {
+      if (mounted) setState(() => _catalog = catalog);
+    });
   }
 
   Future<void> _saveVehicle() async {
@@ -371,14 +352,11 @@ class _VehicleSlideState extends State<_VehicleSlide> {
     setState(() => _isSaving = true);
 
     try {
-      final vehicle = Vehicle(
+      final vehicle = _selectorKey.currentState!.buildVehicle(
         id: 'vehicle_${DateTime.now().millisecondsSinceEpoch}',
-        brand: _selectedBrand!,
-        model: _selectedModel!,
         year: DateTime.now().year,
-        batteryCapacityKwh: double.parse(_batteryController.text),
         currentBatteryPercent: 100,
-        compatibleConnectors: _selectedConnectors.toList(),
+        connectors: _selectedConnectors.toList(),
         isPrimary: true,
       );
 
@@ -444,68 +422,24 @@ class _VehicleSlideState extends State<_VehicleSlide> {
             ),
             const SizedBox(height: 32),
 
-            // Marca
-            DropdownButtonFormField<String>(
-              initialValue: _selectedBrand,
-              decoration: const InputDecoration(
-                labelText: 'Marca',
-                prefixIcon: Icon(Icons.business),
-                border: OutlineInputBorder(),
+            if (_catalog == null)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(),
+              )
+            else
+              VehicleModelSelector(
+                key: _selectorKey,
+                catalog: _catalog!,
+                onVariantChanged: (variant) {
+                  if (variant == null) return;
+                  setState(() {
+                    _selectedConnectors
+                      ..clear()
+                      ..addAll(variant.connectors);
+                  });
+                },
               ),
-              items: _brandsAndModels.keys.map((brand) {
-                return DropdownMenuItem(value: brand, child: Text(brand));
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  _selectedBrand = value;
-                  _selectedModel = null;
-                });
-              },
-              validator: (value) => value == null ? 'Selecciona una marca' : null,
-            ),
-            const SizedBox(height: 16),
-
-            // Modelo
-            DropdownButtonFormField<String>(
-              initialValue: _selectedModel,
-              decoration: const InputDecoration(
-                labelText: 'Modelo',
-                prefixIcon: Icon(Icons.directions_car),
-                border: OutlineInputBorder(),
-              ),
-              items: (_brandsAndModels[_selectedBrand] ?? []).map((model) {
-                return DropdownMenuItem(value: model, child: Text(model));
-              }).toList(),
-              onChanged: _selectedBrand == null
-                  ? null
-                  : (value) => setState(() => _selectedModel = value),
-              validator: (value) =>
-                  value == null ? 'Selecciona un modelo' : null,
-            ),
-            const SizedBox(height: 16),
-
-            // Capacidad de batería
-            TextFormField(
-              controller: _batteryController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Capacidad de batería (kWh)',
-                hintText: 'Ej: 60',
-                prefixIcon: Icon(Icons.battery_full),
-                suffixText: 'kWh',
-                border: OutlineInputBorder(),
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Ingresa la capacidad';
-                }
-                final capacity = double.tryParse(value);
-                if (capacity == null || capacity <= 0) {
-                  return 'Capacidad inválida';
-                }
-                return null;
-              },
-            ),
             const SizedBox(height: 24),
 
             // Conectores
@@ -523,17 +457,17 @@ class _VehicleSlideState extends State<_VehicleSlide> {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: _connectorTypes.map((connector) {
-                final isSelected = _selectedConnectors.contains(connector['id']);
+              children: vehicleConnectorOptions.map((connector) {
+                final isSelected = _selectedConnectors.contains(connector.id);
                 return FilterChip(
-                  label: Text(connector['name']!),
+                  label: Text(connector.name),
                   selected: isSelected,
                   onSelected: (selected) {
                     setState(() {
                       if (selected) {
-                        _selectedConnectors.add(connector['id']!);
+                        _selectedConnectors.add(connector.id);
                       } else {
-                        _selectedConnectors.remove(connector['id']!);
+                        _selectedConnectors.remove(connector.id);
                       }
                     });
                   },

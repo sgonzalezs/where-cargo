@@ -1,0 +1,24 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "where-cargo",
+          "appId": "1:466095040853:android:2c3f09909647b5affd67dc",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "where-cargo",
+          "configurations": {
+            "android": "1:466095040853:android:2c3f09909647b5affd67dc"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

@@ -1,0 +1,60 @@
+rules_version = '2';
+
+// Cada usuario solo puede leer y escribir sus propios datos.
+// Todo lo que no esté listado aquí queda bloqueado.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Vehículo normalizado: o referencia una versión existente del catálogo
+    // (model_id + variant_id) o es personalizado y trae sus datos en custom.
+    function isValidVehicle(uid, vehicleId) {
+      let v = request.resource.data;
+      let modelPath = /databases/$(database)/documents/vehicle_models/$(v.get('model_id', '-'));
+      return v.id == vehicleId
+        && v.user_id == uid
+        && v.keys().hasOnly([
+          'id', 'user_id', 'model_id', 'variant_id', 'connectors', 'custom',
+          'name', 'year', 'current_battery_percent', 'is_primary',
+          'created_at', 'updated_at'
+        ])
+        && v.year is int
+        && v.current_battery_percent is number
+        && (
+          (v.get('model_id', null) is string
+            && !('custom' in v)
+            && exists(modelPath)
+            && v.variant_id in get(modelPath).data.variants)
+          || (!('model_id' in v) && !('variant_id' in v) && v.custom is map)
+        );
+    }
+
+    match /users/{uid} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly([
+          'display_name', 'email', 'photo_url', 'platform',
+          'created_at', 'last_login_at', 'stats_consent'
+        ]);
+
+      match /vehicles/{vehicleId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && isValidVehicle(uid, vehicleId);
+      }
+    }
+
+    // Catálogo de vehículos: lectura pública, solo se publica con
+    // tool/seed_vehicle_catalog.mjs (credenciales de administrador).
+    match /vehicle_brands/{brandId} {
+      allow read: if true;
+    }
+    match /vehicle_models/{modelId} {
+      allow read: if true;
+    }
+    match /catalog_meta/{docId} {
+      allow read: if true;
+    }
+  }
+}

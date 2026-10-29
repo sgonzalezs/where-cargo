@@ -5,6 +5,8 @@ import '../features/map/presentation/pages/map_page.dart';
 import '../features/favorites/presentation/pages/favorites_page.dart';
 import '../features/vehicle_sync/presentation/pages/vehicle_status_page.dart';
 import '../features/onboarding/presentation/pages/onboarding_page.dart';
+import '../features/auth/presentation/pages/login_page.dart';
+import '../shared/services/auth_service.dart';
 import '../shared/services/onboarding_service.dart';
 import '../shared/services/vehicle_service.dart';
 import '../core/theme/app_colors.dart';
@@ -14,6 +16,7 @@ class AppRouter {
   static const String splash = '/';
   static const String home = '/home';
   static const String onboarding = '/onboarding';
+  static const String login = '/login';
   static const String stationsList = '/stations';
   static const String stationDetail = '/stations/:id';
   static const String map = '/map';
@@ -31,6 +34,13 @@ class AppRouter {
       case onboarding:
         return MaterialPageRoute(
           builder: (_) => const OnboardingPage(),
+        );
+      case login:
+        return MaterialPageRoute(
+          builder: (context) => LoginPage(
+            onFinished: () =>
+                Navigator.of(context).pushReplacementNamed(AppRouter.home),
+          ),
         );
       case home:
       case stationsList:
@@ -160,7 +170,14 @@ class _SplashPageState extends State<SplashPage> {
       if (!onboardingService.hasSeenOnboarding && vehicleService.hasVehicles) {
         onboardingService.completeOnboarding(); // No await para evitar async gap
       }
-      Navigator.of(context).pushReplacementNamed(AppRouter.home);
+      // Inicio de sesión opcional: se ofrece hasta que inicie sesión o
+      // elija "Continuar sin cuenta"
+      final authService = AuthService();
+      final offerLogin =
+          !authService.isSignedIn && !authService.loginPromptDismissed;
+      Navigator.of(context).pushReplacementNamed(
+        offerLogin ? AppRouter.login : AppRouter.home,
+      );
     } else {
       Navigator.of(context).pushReplacementNamed(AppRouter.onboarding);
     }

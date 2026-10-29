@@ -1,0 +1,63 @@
+{
+  "project_info": {
+    "project_number": "466095040853",
+    "project_id": "where-cargo",
+    "storage_bucket": "where-cargo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:466095040853:android:2c3f09909647b5affd67dc",
+        "android_client_info": {
+          "package_name": "com.wherecargo.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "466095040853-a96am5f201pi2l80n3o84uitt0fpgk3p.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.wherecargo.app",
+            "certificate_hash": "adf58d81f2ed564f7b5afb4ddfdaabb730edd989"
+          }
+        },
+        {
+          "client_id": "466095040853-d2mc97i32bfuhrcqhd64hj7k945r7aio.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.wherecargo.app",
+            "certificate_hash": "d0bc90b537610af5ab046a5414e7e3527a908a6d"
+          }
+        },
+        {
+          "client_id": "466095040853-df04d3tak4fngl5e25is7h3jm47b6ded.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.wherecargo.app",
+            "certificate_hash": "0938eb3a648639390898d4b49ff2ea486affe984"
+          }
+        },
+        {
+          "client_id": "466095040853-2q8fppet1l32vgc1mk9pj03ri7ujj2r8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCqzXOzF1rgqb6spcHFLbwBc_90m0hrHBk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "466095040853-2q8fppet1l32vgc1mk9pj03ri7ujj2r8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

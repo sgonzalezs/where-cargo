@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../domain/models/vehicle.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/auth_service.dart';
 import '../../../../shared/services/vehicle_service.dart';
+import '../../../auth/presentation/widgets/account_sheet.dart';
 import 'vehicle_form_page.dart';
 
 /// Página de estado del vehículo
@@ -15,17 +17,20 @@ class VehicleStatusPage extends StatefulWidget {
 
 class _VehicleStatusPageState extends State<VehicleStatusPage> {
   final VehicleService _vehicleService = VehicleService();
+  final AuthService _authService = AuthService();
 
   @override
   void initState() {
     super.initState();
     _vehicleService.addListener(_onVehicleChanged);
+    _authService.addListener(_onVehicleChanged);
     _vehicleService.loadVehicles();
   }
 
   @override
   void dispose() {
     _vehicleService.removeListener(_onVehicleChanged);
+    _authService.removeListener(_onVehicleChanged);
     super.dispose();
   }
 
@@ -52,6 +57,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
               onPressed: _showVehicleSelector,
               tooltip: 'Cambiar vehículo',
             ),
+          _buildAccountButton(),
         ],
       ),
       body: _vehicleService.isLoading
@@ -66,6 +72,23 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
               child: const Icon(Icons.add),
             )
           : null,
+    );
+  }
+
+  Widget _buildAccountButton() {
+    final photoUrl = _authService.user?.photoURL;
+    return IconButton(
+      tooltip: 'Mi cuenta',
+      onPressed: () => AccountSheet.show(context),
+      icon: !_authService.isSignedIn
+          ? const Icon(Icons.account_circle_outlined)
+          : CircleAvatar(
+              radius: 14,
+              backgroundColor: AppColors.primary.withValues(alpha: 0.15),
+              foregroundImage:
+                  photoUrl != null ? NetworkImage(photoUrl) : null,
+              child: const Icon(Icons.person, size: 18),
+            ),
     );
   }
 
@@ -221,7 +244,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
                       ),
                     ),
                   Text(
-                    '${_vehicle!.brand} ${_vehicle!.model}',
+                    _vehicle!.fullModelName,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.bold,
                         ),
@@ -354,7 +377,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
                 _buildRangeItem(
                   icon: Icons.directions_car,
                   label: 'Actual',
-                  value: '${_vehicle!.estimatedRangeKm?.toStringAsFixed(0) ?? "--"} km',
+                  value: '${_vehicle!.currentRangeKm?.toStringAsFixed(0) ?? "--"} km',
                 ),
                 Container(
                   width: 1,
@@ -364,7 +387,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
                 _buildRangeItem(
                   icon: Icons.battery_full,
                   label: 'Carga completa',
-                  value: '${(_vehicle!.estimatedRangeKm ?? 0 / _vehicle!.currentBatteryPercent * 100).toStringAsFixed(0)} km',
+                  value: '${_vehicle!.estimatedRangeKm?.toStringAsFixed(0) ?? "--"} km',
                 ),
               ],
             ),
