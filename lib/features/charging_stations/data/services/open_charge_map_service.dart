@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../../core/config/app_env.dart';
 import '../../domain/models/charging_station.dart';
 import '../../domain/models/connector.dart';
 import '../../domain/enums/charging_enums.dart';
@@ -12,11 +14,14 @@ import '../../domain/enums/charging_enums.dart';
 /// Documentación: https://openchargemap.org/site/develop/api
 class OpenChargeMapService {
   static const String _baseUrl = 'https://api.openchargemap.io/v3';
-  static const String _apiKey = '03f371bb-67cf-4f3d-9caf-e2255d38cdd2';
+  // La key se inyecta con --dart-define-from-file (ver AppEnv).
+  final String _apiKey;
   
   final http.Client _client;
 
-  OpenChargeMapService({http.Client? client}) : _client = client ?? http.Client();
+  OpenChargeMapService({http.Client? client, String apiKey = AppEnv.ocmApiKey})
+      : _client = client ?? http.Client(),
+        _apiKey = apiKey;
 
   /// Obtiene estaciones de carga cercanas a una ubicación
   /// 
@@ -31,6 +36,10 @@ class OpenChargeMapService {
     double distanceKm = 50,
     int maxResults = 500,
   }) async {
+    if (_apiKey.isEmpty) {
+      throw Exception('OCM_API_KEY no definida en la compilación');
+    }
+
     try {
       final queryParams = {
         'output': 'json',
@@ -156,21 +165,27 @@ class OpenChargeMapService {
       final longitude = addressInfo['Longitude'] as num?;
       if (latitude == null || longitude == null) return null;
 
+      // Tarifa en texto libre (ej. "1300 COP/kWh", "1700", "0")
+      final pricePerKwh = parseUsageCost(data['UsageCost'] as String?);
+
       // Mapear conectores
       final connections = data['Connections'] as List<dynamic>? ?? [];
       final connectors = connections
           .map((conn) => _mapToConnector(conn as Map<String, dynamic>))
-          .where((c) => c != null)
-          .cast<Connector>()
+          .whereType<Connector>()
+          .map((c) => pricePerKwh == null
+              ? c
+              : c.copyWith(pricePerKwh: pricePerKwh, currency: 'COP'))
           .toList();
 
       if (connectors.isEmpty) {
-        // Crear conector por defecto si no hay información
-        connectors.add(const Connector(
-          id: 'default',
-          type: ConnectorType.type2,
+        // Sin información de conectores: marcar como desconocido (igual que
+        // Google/OSM) en lugar de inventar un Type 2 22kW.
+        connectors.add(Connector(
+          id: '${data['ID'] ?? 'ocm'}_conn_0',
+          type: ConnectorType.unknown,
           chargingType: ChargingType.ac,
-          powerKw: 22,
+          powerKw: 0,
           status: ConnectorStatus.available,
         ));
       }
@@ -212,7 +227,6 @@ class OpenChargeMapService {
         networkName: networkName,
         website: website,
         phoneNumber: addressInfo['ContactTelephone1'] as String?,
-        rating: (data['UserComments'] as List?)?.isNotEmpty == true ? 4.0 : null,
         distanceKm: distanceKm,
         lastUpdated: _parseDate(data['DateLastStatusUpdate'] as String?),
       );
@@ -220,6 +234,30 @@ class OpenChargeMapService {
       // Si hay error mapeando, retornar null y filtrar luego
       return null;
     }
+  }
+
+  /// Interpreta el campo libre `UsageCost` de OCM como precio por kWh.
+  ///
+  /// Solo acepta formatos sin ambigüedad: un número solo ("1700") o un
+  /// número por kWh ("1300 COP/kWh"). Textos como "5000 por hora" o
+  /// "Gratis con compra" devuelven `null` para no mostrar precios falsos.
+  /// Asume pesos colombianos, que es lo que reporta OCM en Colombia.
+  @visibleForTesting
+  static double? parseUsageCost(String? usageCost) {
+    if (usageCost == null) return null;
+    final text = usageCost.trim().toLowerCase();
+    if (text.isEmpty) return null;
+    if (text == 'free' || text == 'gratis') return 0;
+
+    final match = RegExp(r'^\$?\s*(\d+(?:[.,]\d+)*)\s*(cop)?\s*(/\s*kwh)?$')
+        .firstMatch(text);
+    if (match == null) return null;
+    final number = match.group(1)!;
+    // "1.300" o "1,300" en Colombia es separador de miles, no decimal
+    if (RegExp(r'^\d{1,3}([.,]\d{3})+$').hasMatch(number)) {
+      return double.tryParse(number.replaceAll(RegExp(r'[.,]'), ''));
+    }
+    return double.tryParse(number.replaceAll(',', '.'));
   }
 
   /// Mapea un conector de OCM a nuestro modelo
@@ -240,7 +278,9 @@ class OpenChargeMapService {
         id: conn['ID']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString(),
         type: connectorType,
         chargingType: chargingType,
-        powerKw: powerKw > 0 ? powerKw : (chargingType == ChargingType.dc ? 50 : 22),
+        powerKw: powerKw > 0
+            ? powerKw
+            : _defaultPowerKw(connectorType, chargingType),
         status: connectorStatus,
       );
     } catch (e) {
@@ -267,17 +307,33 @@ class OpenChargeMapService {
         return ConnectorType.ccs1;
       case 33: // CCS (Type 2)
         return ConnectorType.ccs2;
-      case 3:  // Type 1 + Type 2 combo
-        return ConnectorType.type2;
+      case 1038: // GB-T AC (Socket)
+      case 1039: // GB-T AC (Tethered Cable)
+        return ConnectorType.gbtAc;
+      case 1040: // GB-T DC
+        return ConnectorType.gbtDc;
       default:
-        return ConnectorType.type2;
+        // Tipos no soportados (ej. 3 = enchufe doméstico BS1363) o sin dato:
+        // no asumir Type 2, porque eso marca compatibilidades falsas.
+        return ConnectorType.unknown;
     }
+  }
+
+  /// Potencia estimada cuando OCM no reporta PowerKW.
+  /// Para conectores desconocidos se usa 0 (la UI muestra "datos limitados").
+  double _defaultPowerKw(ConnectorType type, ChargingType chargingType) {
+    if (type == ConnectorType.unknown) return 0;
+    return chargingType == ChargingType.dc ? 50 : 22;
   }
 
   /// Determina si es AC o DC basado en el tipo y potencia
   ChargingType _getChargingType(int? typeId, double powerKw) {
-    // CHAdeMO, CCS, Tesla Supercharger son DC
-    if (typeId == 2 || typeId == 32 || typeId == 33 || typeId == 27) {
+    // CHAdeMO, CCS, Tesla Supercharger y GB/T DC son DC
+    if (typeId == 2 ||
+        typeId == 32 ||
+        typeId == 33 ||
+        typeId == 27 ||
+        typeId == 1040) {
       return ChargingType.dc;
     }
     // Si la potencia es alta (>22kW), probablemente es DC
@@ -291,15 +347,18 @@ class OpenChargeMapService {
   ConnectorStatus _mapConnectorStatus(int? statusId) {
     // https://openchargemap.org/site/develop/api#reference-data
     switch (statusId) {
+      case 10: // Currently Available (estado automático en tiempo real)
       case 50: // Operational
       case 0:  // Unknown but assume available
         return ConnectorStatus.available;
+      case 20: // Currently In Use (estado automático en tiempo real)
       case 30: // Temporarily Unavailable
       case 75: // Partly Operational
         return ConnectorStatus.occupied;
       case 100: // Not Operational
       case 150: // Planned For Future
       case 200: // Removed
+      case 210: // Removed (Duplicate Listing)
         return ConnectorStatus.unavailable;
       default:
         return ConnectorStatus.available;

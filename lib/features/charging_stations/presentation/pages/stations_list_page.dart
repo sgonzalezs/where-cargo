@@ -66,7 +66,6 @@ class _StationsListPageState extends State<StationsListPage> {
     _stationsService.removeListener(_onStationsChanged);
     _connectivitySubscription?.cancel();
     _searchController.dispose();
-    _repository.dispose();
     super.dispose();
   }
 
@@ -86,27 +85,24 @@ class _StationsListPageState extends State<StationsListPage> {
   }
 
   void _onLocationChanged() {
-    // Cuando la ubicación cambia, recalcular distancias
-    if (mounted) {
-      _recalculateDistances();
+    // Cuando la ubicación cambia hay que buscar estaciones en la nueva zona,
+    // no solo recalcular distancias. Si el Mapa ya lanzó la misma carga,
+    // el servicio reutiliza esa petición.
+    if (mounted && !_locationService.isLocating) {
+      _reloadStations();
     }
   }
 
-  void _recalculateDistances() {
-    final lat = _locationService.latitude;
-    final lng = _locationService.longitude;
-
-    if (_stationsService.hasStations) {
-      final updatedStations = _repository.recalculateDistancesFrom(
-        stations: _stationsService.stations,
-        latitude: lat,
-        longitude: lng,
+  Future<void> _reloadStations({bool forceRefresh = false}) async {
+    try {
+      await _stationsService.loadForCurrentLocation(
+        forceRefresh: forceRefresh,
       );
-      // Actualizar estaciones en el servicio
-      _stationsService.setStations(updatedStations);
-      setState(() {
-        _applyFilters();
-      });
+      final isConnected = await ConnectivityService().isConnected;
+      if (mounted) setState(() => _isOffline = !isConnected);
+    } catch (e) {
+      debugPrint('Error recargando estaciones: $e');
+      if (mounted) setState(() => _isOffline = true);
     }
   }
 
@@ -158,9 +154,7 @@ class _StationsListPageState extends State<StationsListPage> {
             icon: const Icon(Icons.refresh),
             onPressed: _stationsService.isLoading
                 ? null
-                : () {
-                    _applyFilters();
-                  },
+                : () => _reloadStations(forceRefresh: true),
           ),
         ],
       ),
@@ -407,9 +401,7 @@ class _StationsListPageState extends State<StationsListPage> {
           ),
           if (!_stationsService.isLoading)
             GestureDetector(
-              onTap: () {
-                _applyFilters();
-              },
+              onTap: () => _reloadStations(forceRefresh: true),
               child: Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -433,7 +425,8 @@ class _StationsListPageState extends State<StationsListPage> {
   }
 
   Widget _buildContent() {
-    if (_stationsService.isLoading) {
+    // Mientras llegan más fuentes se sigue mostrando lo ya cargado
+    if (_stationsService.isLoading && !_stationsService.hasStations) {
       return const Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,

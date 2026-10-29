@@ -53,3 +53,7 @@ android/keystore/
 # API Keys and secrets (if stored locally)
 **/secrets/
 *.env
+
+# Secretos de compilación (API keys) — ver config/env.example.json
+config/env.json
+ios/Flutter/Secrets.xcconfig

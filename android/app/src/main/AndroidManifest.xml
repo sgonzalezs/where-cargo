@@ -38,7 +38,7 @@
         <!-- Google Maps API Key -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyBVU6QK4kIl0A6-bEtT0OgUgtRW6abMO2c"/>
+            android:value="${googleMapsApiKey}"/>
         
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
@@ -59,6 +59,15 @@
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="waze" />
+        </intent>
+        <!-- Contacto y ficha de Google Maps en el detalle de estación -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+            <data android:scheme="tel" />
         </intent>
     </queries>
 </manifest>

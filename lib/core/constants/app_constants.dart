@@ -3,11 +3,12 @@ class AppConstants {
   AppConstants._();
 
   static const String appName = 'Where Cargo';
-  static const String appVersion = '1.0.0';
-  
-  // Configuración de mapa
-  static const double defaultLatitude = 4.7110; // Bogotá, Colombia
-  static const double defaultLongitude = -74.0721;
+  // La versión de la app se define solo en pubspec.yaml
+
+  // Configuración de mapa: ubicación por defecto Medellín, Colombia
+  static const String defaultLocationLabel = 'Medellín (por defecto)';
+  static const double defaultLatitude = 6.2442;
+  static const double defaultLongitude = -75.5812;
   static const double defaultZoom = 12.0;
   
   // Configuración de búsqueda

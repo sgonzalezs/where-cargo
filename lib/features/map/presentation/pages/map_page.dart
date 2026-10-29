@@ -10,6 +10,8 @@ import '../../../filters/presentation/widgets/filter_sheet.dart';
 import '../../../charging_stations/data/repositories/charging_stations_repository.dart';
 import '../../../charging_stations/presentation/pages/station_detail_page.dart';
 import '../../../navigation_apps/presentation/widgets/navigation_options_sheet.dart';
+import '../../../../core/config/app_env.dart';
+import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/location_service.dart';
 import '../../../../shared/services/favorites_service.dart';
@@ -59,12 +61,13 @@ class _MapPageState extends State<MapPage> {
   List<ChargingStation> _stations = [];
   ChargingStation? _selectedStation;
   Set<Marker> _markers = {};
+  int _markersGeneration = 0;
   LatLng? _userLocation; // Ubicación seleccionada manualmente
   StationFilters _filters = const StationFilters();
 
-  // Posición inicial: Medellín, Colombia
+  // Posición inicial: ubicación por defecto de la app
   static const CameraPosition _initialPosition = CameraPosition(
-    target: LatLng(6.2442, -75.5812),
+    target: LatLng(AppConstants.defaultLatitude, AppConstants.defaultLongitude),
     zoom: 13.0,
   );
 
@@ -76,6 +79,7 @@ class _MapPageState extends State<MapPage> {
     _favoritesService.loadFavorites();
     _vehicleService.addListener(_onVehicleChanged);
     _vehicleService.loadVehicles();
+    _stationsService.addListener(_onStationsChanged);
     _proximityService.activate();
     _connectivitySubscription =
         ConnectivityService().onConnectivityChanged.listen((isConnected) {
@@ -93,10 +97,19 @@ class _MapPageState extends State<MapPage> {
     _locationService.removeListener(_onLocationChanged);
     _favoritesService.removeListener(_onFavoritesChanged);
     _vehicleService.removeListener(_onVehicleChanged);
+    _stationsService.removeListener(_onStationsChanged);
     _connectivitySubscription?.cancel();
     _searchController.dispose();
-    _repository.dispose();
     super.dispose();
+  }
+
+  // Las estaciones pueden recargarse desde otra pestaña (ej. el Listado al
+  // cambiar de ciudad): sincronizar marcadores con el servicio compartido.
+  void _onStationsChanged() {
+    if (!mounted) return;
+    if (identical(_stationsService.stations, _allStations)) return;
+    setState(() => _allStations = _stationsService.stations);
+    _applyFilters();
   }
 
   void _onFavoritesChanged() {
@@ -124,13 +137,42 @@ class _MapPageState extends State<MapPage> {
   }
 
   Future<void> _initializeMap() async {
-    // Obtener ubicación actual y cargar estaciones cercanas
-    await _getCurrentLocation();
-    await _loadStations();
+    // Con la última ubicación conocida se empieza a cargar sin esperar al
+    // GPS (que puede tardar hasta 10 s). Si la posición precisa cae en la
+    // misma zona, la segunda carga reutiliza la primera.
+    final hasQuickLocation = await _locationService.useLastKnownLocation();
+    if (hasQuickLocation && mounted) {
+      setState(() {
+        _userLocation = LatLng(
+          _locationService.latitude,
+          _locationService.longitude,
+        );
+      });
+      _moveCameraToUser();
+      _loadStations(showResult: false);
+    }
+
+    await _getCurrentLocation(showError: !hasQuickLocation);
+    if (mounted) await _loadStations();
+  }
+
+  Future<void> _moveCameraToUser() async {
+    final controller = await _mapController.future;
+    await controller.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: LatLng(
+            _locationService.latitude,
+            _locationService.longitude,
+          ),
+          zoom: 14.0,
+        ),
+      ),
+    );
   }
 
   /// Obtiene la ubicación actual del usuario usando el servicio compartido
-  Future<void> _getCurrentLocation() async {
+  Future<void> _getCurrentLocation({bool showError = true}) async {
     final success = await _locationService.getCurrentLocation();
 
     if (success && mounted) {
@@ -142,19 +184,8 @@ class _MapPageState extends State<MapPage> {
       });
 
       // Mover cámara a la ubicación actual
-      final controller = await _mapController.future;
-      await controller.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: LatLng(
-              _locationService.latitude,
-              _locationService.longitude,
-            ),
-            zoom: 14.0,
-          ),
-        ),
-      );
-    } else {
+      await _moveCameraToUser();
+    } else if (showError) {
       // Usar ubicación por defecto
       _showLocationError('No se pudo obtener la ubicación');
     }
@@ -174,34 +205,34 @@ class _MapPageState extends State<MapPage> {
     }
   }
 
-  /// Carga las estaciones de carga desde Open Charge Map API
-  Future<void> _loadStations() async {
+  /// Carga las estaciones cercanas a través del servicio compartido.
+  ///
+  /// Con [showResult] en `false` no se muestra el mensaje final (se usa en la
+  /// carga anticipada con la última ubicación conocida).
+  Future<void> _loadStations({
+    bool forceRefresh = false,
+    bool showResult = true,
+  }) async {
     setState(() => _isLoading = true);
-    _stationsService.setLoading(true);
 
     final isConnected = await ConnectivityService().isConnected;
 
     try {
-      // Usar ubicación del servicio compartido
-      final stations = await _repository.getNearbyStations(
-        latitude: _locationService.latitude,
-        longitude: _locationService.longitude,
-        radiusKm: 30,
+      // El servicio usa la ubicación compartida y notifica a _onStationsChanged
+      final stations = await _stationsService.loadForCurrentLocation(
+        forceRefresh: forceRefresh,
       );
 
       if (mounted) {
         setState(() {
-          _allStations = stations;
-          _isLoading = false;
+          // Puede haber otra carga en curso (ej. tras obtener el GPS preciso)
+          _isLoading = _stationsService.isLoading;
           _isOffline = !isConnected;
         });
-        // Guardar estaciones en el servicio compartido
-        _stationsService.setStations(stations);
-        _stationsService.setLoading(false);
-        await _applyFilters();
-        _proximityService.updateStations(stations);
 
-        if (!isConnected && stations.isNotEmpty) {
+        if (!showResult) {
+          // Carga anticipada: el resultado final lo informa la siguiente
+        } else if (!isConnected && stations.isNotEmpty) {
           // El banner de sin conexión ya informa al usuario
         } else if (stations.isEmpty) {
           _showMessage('No se encontraron estaciones en esta zona');
@@ -213,11 +244,24 @@ class _MapPageState extends State<MapPage> {
       debugPrint('Error cargando estaciones: $e');
       if (mounted) {
         setState(() {
-          _isLoading = false;
-          _isOffline = true;
+          _isLoading = _stationsService.isLoading;
+          _isOffline = !isConnected;
         });
+        // Con conexión, el problema son las fuentes: decirlo en lugar de
+        // mostrar "no hay estaciones" o "sin conexión"
+        if (isConnected && showResult) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('No se pudieron cargar las estaciones'),
+              duration: const Duration(seconds: 5),
+              action: SnackBarAction(
+                label: 'Reintentar',
+                onPressed: _refreshStations,
+              ),
+            ),
+          );
+        }
       }
-      _stationsService.setLoading(false);
     }
   }
 
@@ -229,9 +273,8 @@ class _MapPageState extends State<MapPage> {
 
   /// Recarga las estaciones
   Future<void> _refreshStations() async {
-    _repository.clearCache();
     MarkerGenerator.clearCache();
-    await _loadStations();
+    await _loadStations(forceRefresh: true);
   }
 
   bool get _hasActiveFilters =>
@@ -259,8 +302,10 @@ class _MapPageState extends State<MapPage> {
       sortBy: _filters.sortBy,
     );
 
+    final generation = ++_markersGeneration;
     final markers = await _createMarkersAsync(filteredStations);
-    if (!mounted) return;
+    // Si llegó otra actualización mientras se generaban, descartar esta
+    if (!mounted || generation != _markersGeneration) return;
 
     setState(() {
       _stations = filteredStations;
@@ -419,11 +464,17 @@ class _MapPageState extends State<MapPage> {
     final markers = <Marker>{};
     final vehicleConnectors = _vehicleService.primaryVehicle?.compatibleConnectors;
 
-    for (final station in stations) {
-      final icon = await MarkerGenerator.generateStationMarker(
+    // Generar íconos en paralelo (muchos comparten estilo y salen del cache)
+    final icons = await Future.wait(stations.map(
+      (station) => MarkerGenerator.generateStationMarker(
         station,
         vehicleConnectors: vehicleConnectors,
-      );
+      ),
+    ));
+
+    for (var i = 0; i < stations.length; i++) {
+      final station = stations[i];
+      final icon = icons[i];
 
       markers.add(
         Marker(
@@ -433,8 +484,9 @@ class _MapPageState extends State<MapPage> {
           anchor: const Offset(0.5, 1.0),
           infoWindow: InfoWindow(
             title: station.name,
-            snippet:
-                '${station.availabilityText} • ${station.maxPowerKw.toInt()} kW',
+            snippet: station.hasCompleteData
+                ? '${station.availabilityText} • ${station.maxPowerKw.toInt()} kW'
+                : 'Datos limitados',
           ),
           onTap: () => _selectStation(station),
         ),
@@ -449,7 +501,8 @@ class _MapPageState extends State<MapPage> {
           markerId: const MarkerId('user_location'),
           position: _userLocation!,
           icon: userIcon,
-          anchor: const Offset(0.5, 0.5),
+          // La punta de la gota marca la posición exacta
+          anchor: MarkerGenerator.userMarkerAnchor,
           infoWindow: const InfoWindow(title: 'Mi ubicación'),
           zIndexInt: 999, // Siempre encima de otros marcadores
         ),
@@ -574,8 +627,26 @@ class _MapPageState extends State<MapPage> {
               child: _buildOfflineBanner(),
             ),
 
-          // Indicador de carga inicial
-          if (_isLoading)
+          // Compilación sin API keys: avisar en vez de fallar en silencio
+          if (AppEnv.missingKeys.isNotEmpty)
+            Positioned(
+              bottom: 24,
+              left: 16,
+              right: 88,
+              child: _buildMissingKeysBanner(),
+            ),
+
+          // Actualización en segundo plano: ya hay marcadores en el mapa
+          if (_isLoading && _allStations.isNotEmpty && !_isSelectingLocation)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 80,
+              left: 0,
+              right: 0,
+              child: Center(child: _buildUpdatingChip()),
+            ),
+
+          // Indicador de carga inicial (solo si aún no hay nada que mostrar)
+          if (_isLoading && _allStations.isEmpty)
             Container(
               color: Colors.black26,
               child: const Center(
@@ -594,6 +665,50 @@ class _MapPageState extends State<MapPage> {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMissingKeysBanner() {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.error,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        'Compilación sin API keys (${AppEnv.missingKeys.join(', ')}). '
+        'Compila con --dart-define-from-file=config/env.json',
+        style: const TextStyle(color: Colors.white, fontSize: 12),
+      ),
+    );
+  }
+
+  Widget _buildUpdatingChip() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 12,
+            height: 12,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          SizedBox(width: 8),
+          Text('Actualizando estaciones...', style: TextStyle(fontSize: 12)),
         ],
       ),
     );

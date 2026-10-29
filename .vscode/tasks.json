@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build APK release (con API keys)",
+      "type": "shell",
+      "command": "flutter build apk --release --dart-define-from-file=config/env.json",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Build App Bundle release (con API keys)",
+      "type": "shell",
+      "command": "flutter build appbundle --release --dart-define-from-file=config/env.json",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "Instalar APK release en el dispositivo",
+      "type": "shell",
+      "command": "flutter install --release",
+      "problemMatcher": []
+    }
+  ]
+}

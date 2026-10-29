@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
+import '../../core/constants/app_constants.dart';
+
 /// Servicio singleton para gestionar la ubicación del usuario
 /// Compartido entre todas las páginas de la app
 class LocationService extends ChangeNotifier {
@@ -11,13 +13,13 @@ class LocationService extends ChangeNotifier {
   // Ubicación actual
   double? _latitude;
   double? _longitude;
-  String _locationLabel = 'Medellín (por defecto)';
+  String _locationLabel = AppConstants.defaultLocationLabel;
   bool _isLocating = false;
   bool _hasCustomLocation = false;
 
-  // Ubicación por defecto: Medellín, Colombia
-  static const double defaultLatitude = 6.2442;
-  static const double defaultLongitude = -75.5812;
+  // Ubicación por defecto (ver AppConstants)
+  static const double defaultLatitude = AppConstants.defaultLatitude;
+  static const double defaultLongitude = AppConstants.defaultLongitude;
 
   // Getters
   double get latitude => _latitude ?? defaultLatitude;
@@ -26,6 +28,40 @@ class LocationService extends ChangeNotifier {
   bool get isLocating => _isLocating;
   bool get hasCustomLocation => _hasCustomLocation;
   bool get hasLocation => _latitude != null && _longitude != null;
+
+  /// Antigüedad máxima para confiar en la última posición conocida.
+  static const Duration _lastKnownMaxAge = Duration(hours: 2);
+
+  /// Usa la última posición conocida del dispositivo, que está disponible al
+  /// instante (no enciende el GPS). Sirve para empezar a cargar estaciones
+  /// mientras se obtiene la posición precisa con [getCurrentLocation].
+  ///
+  /// No pide permisos: si aún no se otorgaron, retorna `false`.
+  Future<bool> useLastKnownLocation() async {
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        return false;
+      }
+
+      final position = await Geolocator.getLastKnownPosition();
+      if (position == null) return false;
+      if (DateTime.now().difference(position.timestamp) > _lastKnownMaxAge) {
+        return false;
+      }
+
+      _latitude = position.latitude;
+      _longitude = position.longitude;
+      _locationLabel = 'Mi ubicación';
+      _hasCustomLocation = true;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Sin última ubicación conocida: $e');
+      return false;
+    }
+  }
 
   /// Obtiene la ubicación actual del dispositivo
   Future<bool> getCurrentLocation() async {
@@ -102,7 +138,7 @@ class LocationService extends ChangeNotifier {
   void resetToDefault() {
     _latitude = defaultLatitude;
     _longitude = defaultLongitude;
-    _locationLabel = 'Medellín (por defecto)';
+    _locationLabel = AppConstants.defaultLocationLabel;
     _hasCustomLocation = false;
     notifyListeners();
   }

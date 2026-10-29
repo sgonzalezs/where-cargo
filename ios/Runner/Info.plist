@@ -49,6 +49,9 @@
 	<array>
 		<string>waze</string>
 	</array>
+	<!-- API key de Google Maps, definida en ios/Flutter/Secrets.xcconfig -->
+	<key>GMSApiKey</key>
+	<string>$(GOOGLE_MAPS_API_KEY)</string>
 	<!-- Permisos de ubicación -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Where Cargo necesita acceder a tu ubicación para mostrarte las estaciones de carga cercanas.</string>

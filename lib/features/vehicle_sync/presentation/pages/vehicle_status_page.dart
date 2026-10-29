@@ -88,7 +88,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => Container(
+      builder: (sheetContext) => Container(
         padding: const EdgeInsets.all(16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -96,7 +96,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
           children: [
             Text(
               'Seleccionar Vehículo',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
             ),
@@ -115,7 +115,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
                     : null,
                 onTap: () async {
                   await _vehicleService.setPrimaryVehicle(vehicle.id);
-                  if (mounted) Navigator.pop(context);
+                  if (sheetContext.mounted) Navigator.pop(sheetContext);
                 },
               );
             }),

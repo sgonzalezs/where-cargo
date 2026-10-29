@@ -72,101 +72,124 @@ class MarkerGenerator {
   }
 
   /// Genera un marcador tradicional para la ubicación del usuario (pin verde y blanco)
+  /// Tamaño lógico del marcador de usuario (el anclaje usa la punta).
+  static const double userMarkerWidth = 44;
+  static const double userMarkerHeight = 58;
+
+  /// Punto de anclaje: la punta de la gota, para que señale la ubicación exacta.
+  static const Offset userMarkerAnchor = Offset(0.5, 54 / 58);
+
+  /// Genera el marcador de la ubicación del usuario: una gota ancha en el
+  /// color de la app con un círculo blanco y un vehículo en el centro.
   static Future<BitmapDescriptor> generateUserLocationMarker() async {
-    const String cacheKey = 'marker_user_location';
-    
+    const String cacheKey = 'marker_user_location_v2';
+
     // Retornar de cache si existe
     if (_cache.containsKey(cacheKey)) {
       return _cache[cacheKey]!;
     }
 
-    const double scale = 2.5;
-    const double width = 40 * scale;
-    const double height = 56 * scale;
-    const double pinRadius = 14 * scale;
-    
+    // Se dibuja a 3x para que se vea nítido en pantallas de alta densidad
+    const double scale = 3;
+    const double width = userMarkerWidth * scale;
+    const double height = userMarkerHeight * scale;
+    const double cx = width / 2;
+    const double headRadius = 19 * scale;
+    const double headCenterY = 2 * scale + headRadius;
+    const double tipY = 54 * scale;
+
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
-    
-    // Sombra
-    final shadowPaint = Paint()
-      ..color = Colors.black.withAlpha(40)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4);
-    
+
+    // Sombra suave bajo la punta
     canvas.drawOval(
       Rect.fromCenter(
-        center: Offset(width / 2, height * 0.85),
-        width: width * 0.6,
-        height: height * 0.15,
+        center: const Offset(cx, tipY),
+        width: 14 * scale,
+        height: 4 * scale,
       ),
-      shadowPaint,
+      Paint()
+        ..color = Colors.black.withAlpha(60)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2 * scale),
     );
-    
-    // Cabeza del pin (redondeada, verde)
-    final pinHeadPaint = Paint()
-      ..color = AppColors.primary
-      ..style = PaintingStyle.fill;
-    
-    canvas.drawCircle(
-      Offset(width / 2, pinRadius),
-      pinRadius,
-      pinHeadPaint,
-    );
-    
-    // Cuerpo del pin (hacia abajo, verde)
-    final bodyPath = Path()
-      ..moveTo(width / 2 - pinRadius, pinRadius)
-      ..lineTo(width / 2, height - 2)
-      ..lineTo(width / 2 + pinRadius, pinRadius)
+
+    // Gota: cabeza circular y lados curvos que se cierran en una punta
+    final pinPath = Path()
+      ..moveTo(cx, tipY)
+      ..cubicTo(
+        cx - headRadius * 0.3, tipY - 8 * scale,
+        cx - headRadius, headCenterY + headRadius * 0.8,
+        cx - headRadius, headCenterY,
+      )
       ..arcToPoint(
-        Offset(width / 2 - pinRadius, pinRadius),
-        radius: Radius.circular(pinRadius),
-        clockwise: false,
+        const Offset(cx + headRadius, headCenterY),
+        radius: const Radius.circular(headRadius),
+        clockwise: true,
+      )
+      ..cubicTo(
+        cx + headRadius, headCenterY + headRadius * 0.8,
+        cx + headRadius * 0.3, tipY - 8 * scale,
+        cx, tipY,
       )
       ..close();
-    
-    canvas.drawPath(bodyPath, pinHeadPaint);
-    
-    // Círculo blanco interior (punto de ubicación)
-    final circlePaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    
-    canvas.drawCircle(
-      Offset(width / 2, pinRadius),
-      pinRadius * 0.5,
-      circlePaint,
+
+    // Borde blanco para que destaque sobre el mapa y los marcadores verdes
+    canvas.drawPath(
+      pinPath,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2 * scale
+        ..strokeJoin = StrokeJoin.round,
     );
-    
-    // Punto central pequeño (verde)
-    final centerPaint = Paint()
-      ..color = AppColors.primary
-      ..style = PaintingStyle.fill;
-    
+    canvas.drawPath(pinPath, Paint()..color = AppColors.primary);
+
+    // Círculo blanco interior
     canvas.drawCircle(
-      Offset(width / 2, pinRadius),
-      pinRadius * 0.2,
-      centerPaint,
+      const Offset(cx, headCenterY),
+      headRadius * 0.68,
+      Paint()..color = Colors.white,
     );
-    
+
+    // Vehículo en el centro (glifo de Material Icons)
+    const carIcon = Icons.directions_car;
+    final iconPainter = TextPainter(textDirection: TextDirection.ltr)
+      ..text = TextSpan(
+        text: String.fromCharCode(carIcon.codePoint),
+        style: TextStyle(
+          fontSize: headRadius * 0.9,
+          fontFamily: carIcon.fontFamily,
+          package: carIcon.fontPackage,
+          color: AppColors.primaryDark,
+        ),
+      )
+      ..layout();
+    iconPainter.paint(
+      canvas,
+      Offset(
+        cx - iconPainter.width / 2,
+        headCenterY - iconPainter.height / 2,
+      ),
+    );
+
     // Convertir a imagen
     final picture = recorder.endRecording();
     final image = await picture.toImage(width.toInt(), height.toInt());
     final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-    
+
     if (byteData == null) {
       return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
     }
-    
+
     final descriptor = BitmapDescriptor.bytes(
       byteData.buffer.asUint8List(),
-      width: 40,
-      height: 56,
+      width: userMarkerWidth,
+      height: userMarkerHeight,
     );
-    
+
     // Guardar en cache
     _cache[cacheKey] = descriptor;
-    
+
     return descriptor;
   }
 

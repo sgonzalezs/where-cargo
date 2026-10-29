@@ -512,18 +512,19 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
   void _confirmDelete() {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Eliminar vehículo'),
         content: Text('¿Deseas eliminar "${widget.vehicle?.displayName}"?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancelar'),
           ),
           TextButton(
             onPressed: () async {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               await _vehicleService.removeVehicle(widget.vehicle!.id);
+              // Usar el context de la página: el del diálogo ya se cerró
               if (mounted) {
                 Navigator.pop(context, true);
                 ScaffoldMessenger.of(context).showSnackBar(

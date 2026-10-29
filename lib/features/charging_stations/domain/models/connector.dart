@@ -24,7 +24,9 @@ class Connector {
 
   bool get isAvailable => status == ConnectorStatus.available;
 
-  bool get isFree => pricePerKwh == null || pricePerKwh == 0;
+  /// Solo es gratis si el precio se conoce y es 0. Un precio `null` significa
+  /// "sin información", no "gratis".
+  bool get isFree => pricePerKwh == 0;
 
   factory Connector.fromJson(Map<String, dynamic> json) {
     return Connector(

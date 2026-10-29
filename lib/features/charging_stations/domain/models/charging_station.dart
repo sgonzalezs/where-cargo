@@ -25,6 +25,7 @@ class ChargingStation {
   final List<String>? images;
   final double? rating;
   final int? reviewCount;
+  final String? googleMapsUri; // Ficha en Google Maps (fotos, reseñas)
   final DateTime? lastUpdated;
 
   // Campos calculados (se llenan con datos de ubicación del usuario)
@@ -53,6 +54,7 @@ class ChargingStation {
     this.images,
     this.rating,
     this.reviewCount,
+    this.googleMapsUri,
     this.lastUpdated,
     this.distanceKm,
     this.estimatedDrivingTime,
@@ -78,7 +80,7 @@ class ChargingStation {
 
   bool get isFree =>
       paymentType == PaymentType.free ||
-      connectors.every((c) => c.isFree);
+      (connectors.isNotEmpty && connectors.every((c) => c.isFree));
 
   bool get isOpen => operatingSchedule?.isOpenNow() ?? true;
 
@@ -140,6 +142,7 @@ class ChargingStation {
           ? (json['rating'] as num).toDouble()
           : null,
       reviewCount: json['review_count'] as int?,
+      googleMapsUri: json['google_maps_uri'] as String?,
       lastUpdated: json['last_updated'] != null
           ? DateTime.parse(json['last_updated'] as String)
           : null,
@@ -175,6 +178,7 @@ class ChargingStation {
       'images': images,
       'rating': rating,
       'review_count': reviewCount,
+      'google_maps_uri': googleMapsUri,
       'last_updated': lastUpdated?.toIso8601String(),
       'distance_km': distanceKm,
       'estimated_driving_time_minutes': estimatedDrivingTime?.inMinutes,
@@ -203,6 +207,7 @@ class ChargingStation {
     List<String>? images,
     double? rating,
     int? reviewCount,
+    String? googleMapsUri,
     DateTime? lastUpdated,
     double? distanceKm,
     Duration? estimatedDrivingTime,
@@ -229,6 +234,7 @@ class ChargingStation {
       images: images ?? this.images,
       rating: rating ?? this.rating,
       reviewCount: reviewCount ?? this.reviewCount,
+      googleMapsUri: googleMapsUri ?? this.googleMapsUri,
       lastUpdated: lastUpdated ?? this.lastUpdated,
       distanceKm: distanceKm ?? this.distanceKm,
       estimatedDrivingTime: estimatedDrivingTime ?? this.estimatedDrivingTime,

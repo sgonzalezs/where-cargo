@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
@@ -20,6 +21,7 @@ class OsmService {
   ];
 
   static const String _sourcePrefix = 'osm_';
+  static const Duration _requestTimeout = Duration(seconds: 12);
 
   final http.Client _client;
 
@@ -35,7 +37,7 @@ class OsmService {
   }) async {
     // Query Overpass QL: nodos y vías con amenity=charging_station en el radio
     final query = '''
-[out:json][timeout:25];
+[out:json][timeout:10];
 (
   node["amenity"="charging_station"](around:$radiusMeters,$latitude,$longitude);
   way["amenity"="charging_station"](around:$radiusMeters,$latitude,$longitude);
@@ -43,44 +45,63 @@ class OsmService {
 out center tags;
 ''';
 
-    for (final endpoint in _overpassEndpoints) {
-      try {
-        final response = await _client
-            .post(
-              Uri.parse(endpoint),
-              headers: {
-                HttpHeaders.contentTypeHeader: 'application/x-www-form-urlencoded',
-                HttpHeaders.userAgentHeader: 'WhereCargo/1.0 (Flutter App)',
-              },
-              body: 'data=${Uri.encodeComponent(query)}',
-            )
-            .timeout(const Duration(seconds: 30));
+    // Los servidores públicos de Overpass suelen estar saturados: se consultan
+    // todos a la vez y gana el primero que responda bien. Antes se probaban
+    // en serie con 30 s cada uno, lo que bloqueaba la carga hasta 60 s.
+    final completer = Completer<List<ChargingStation>>();
+    var pending = _overpassEndpoints.length;
+    Object? lastError;
 
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body) as Map<String, dynamic>;
-          final elements = data['elements'] as List<dynamic>? ?? [];
-          return elements
-              .map((e) => _mapToChargingStation(
-                    e as Map<String, dynamic>,
-                    latitude,
-                    longitude,
-                  ))
-              .where((s) => s != null)
-              .cast<ChargingStation>()
-              .toList();
+    for (final endpoint in _overpassEndpoints) {
+      _queryEndpoint(endpoint, query, latitude, longitude).then((stations) {
+        if (!completer.isCompleted) completer.complete(stations);
+      }).catchError((Object e) {
+        lastError = e;
+        pending--;
+        if (pending == 0 && !completer.isCompleted) {
+          completer.completeError(
+            lastError is SocketException
+                ? Exception('Sin conexión a internet')
+                : Exception('Overpass no disponible: $lastError'),
+          );
         }
-      } on SocketException {
-        // Sin internet — no reintentar con otro endpoint
-        throw Exception('Sin conexión a internet');
-      } catch (_) {
-        // Falló este endpoint, intentar con el siguiente
-        continue;
-      }
+      });
     }
 
-    // Ambos endpoints fallaron — devolver lista vacía en lugar de lanzar excepción
-    // para que OCM siga funcionando normalmente
-    return [];
+    return completer.future;
+  }
+
+  Future<List<ChargingStation>> _queryEndpoint(
+    String endpoint,
+    String query,
+    double latitude,
+    double longitude,
+  ) async {
+    final response = await _client
+        .post(
+          Uri.parse(endpoint),
+          headers: {
+            HttpHeaders.contentTypeHeader: 'application/x-www-form-urlencoded',
+            HttpHeaders.userAgentHeader: 'WhereCargo/1.0 (Flutter App)',
+          },
+          body: 'data=${Uri.encodeComponent(query)}',
+        )
+        .timeout(_requestTimeout);
+
+    if (response.statusCode != 200) {
+      throw HttpException('HTTP ${response.statusCode} en $endpoint');
+    }
+
+    final data = json.decode(response.body) as Map<String, dynamic>;
+    final elements = data['elements'] as List<dynamic>? ?? [];
+    return elements
+        .map((e) => _mapToChargingStation(
+              e as Map<String, dynamic>,
+              latitude,
+              longitude,
+            ))
+        .whereType<ChargingStation>()
+        .toList();
   }
 
   ChargingStation? _mapToChargingStation(

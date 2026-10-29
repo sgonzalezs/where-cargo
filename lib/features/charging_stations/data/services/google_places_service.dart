@@ -5,8 +5,10 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../../core/config/app_env.dart';
 import '../../domain/models/charging_station.dart';
 import '../../domain/models/connector.dart';
+import '../../domain/models/operating_hours.dart';
 import '../../domain/enums/charging_enums.dart';
 
 /// Servicio para obtener estaciones de carga desde Google Places API (New).
@@ -15,75 +17,168 @@ import '../../domain/enums/charging_enums.dart';
 /// Usa el endpoint v1 (Places API New) con el tipo `electric_vehicle_charging_station`.
 class GooglePlacesService {
   static const String _baseUrl = 'https://places.googleapis.com/v1';
-  // ignore: do_not_use_environment — la key se almacena aquí para esta versión MVP;
-  // en producción debe moverse a variables de entorno o a un backend propio.
-  static const String _apiKey = 'AIzaSyBVU6QK4kIl0A6-bEtT0OgUgtRW6abMO2c';
+  // La key se inyecta con --dart-define-from-file (ver AppEnv).
+  // Cuando exista un backend propio, esta llamada debe moverse allí.
+  static const String _apiKey = AppEnv.googlePlacesApiKey;
   static const String _sourcePrefix = 'gpl_';
 
-  // Campos que pedimos a la API (FieldMask)
-  static const String _fieldMask =
+  // Campos que pedimos a la API (FieldMask). `evChargeOptions` ya ubica la
+  // consulta en la SKU Enterprise + Atmosphere, así que horario, calificación
+  // y enlace de Maps no suben el costo.
+  static const String _placeFields =
       'places.id,places.displayName,places.formattedAddress,'
       'places.location,places.businessStatus,places.evChargeOptions,'
-      'places.nationalPhoneNumber,places.websiteUri';
+      'places.nationalPhoneNumber,places.websiteUri,places.rating,'
+      'places.userRatingCount,places.regularOpeningHours.periods,'
+      'places.googleMapsUri';
+  static const String _fieldMask = '$_placeFields,nextPageToken';
+
+  /// Radio en que se busca el lugar de Google de una estación ya conocida.
+  static const double _nearbyMatchRadiusMeters = 150;
+
+  /// Text Search devuelve 20 resultados por página y hasta 3 páginas (60).
+  /// Cada página se factura, por eso se limita aquí.
+  static const int _maxPages = 3;
 
   final http.Client _client;
 
   GooglePlacesService({http.Client? client}) : _client = client ?? http.Client();
 
-  /// Obtiene estaciones EV cercanas usando la Places API (New).
+  /// Obtiene estaciones EV cercanas usando Text Search de la Places API (New).
   ///
-  /// [radiusMeters]: Radio de búsqueda (máx. 50.000 m según la API).
+  /// Se usa Text Search en lugar de Nearby Search porque permite paginar
+  /// (Nearby está limitado a 20 resultados).
+  /// [radiusMeters]: Radio de búsqueda; se convierte a un rectángulo.
+  /// Lanza excepción si la API falla, para que el repositorio sepa que el
+  /// resultado es parcial.
   Future<List<ChargingStation>> getNearbyStations({
     required double latitude,
     required double longitude,
     int radiusMeters = 50000,
   }) async {
-    try {
-      final body = json.encode({
-        'includedTypes': ['electric_vehicle_charging_station'],
-        'maxResultCount': 20, // máximo permitido por la API
-        'locationRestriction': {
-          'circle': {
-            'center': {'latitude': latitude, 'longitude': longitude},
-            'radius': radiusMeters.toDouble(),
-          },
+    // Sin key es un error de compilación, no "cero estaciones": se reporta
+    // como fallo para que la app no muestre "no hay estaciones cerca".
+    if (_apiKey.isEmpty) {
+      throw Exception('GOOGLE_PLACES_API_KEY no definida en la compilación');
+    }
+
+    // Text Search solo admite restricción por rectángulo
+    final radiusKm = radiusMeters / 1000;
+    final dLat = radiusKm / 111.32;
+    final dLng = radiusKm / (111.32 * math.cos(_toRad(latitude)));
+    final request = <String, dynamic>{
+      'textQuery': 'estación de carga para vehículos eléctricos',
+      'includedType': 'electric_vehicle_charging_station',
+      'strictTypeFiltering': true,
+      'pageSize': 20,
+      'locationRestriction': {
+        'rectangle': {
+          'low': {'latitude': latitude - dLat, 'longitude': longitude - dLng},
+          'high': {'latitude': latitude + dLat, 'longitude': longitude + dLng},
         },
-      });
+      },
+    };
 
-      final response = await _client
-          .post(
-            Uri.parse('$_baseUrl/places:searchNearby'),
-            headers: {
-              HttpHeaders.contentTypeHeader: 'application/json',
-              'X-Goog-Api-Key': _apiKey,
-              'X-Goog-FieldMask': _fieldMask,
-            },
-            body: body,
-          )
-          .timeout(const Duration(seconds: 30));
+    final stations = <ChargingStation>[];
+    try {
+      String? pageToken;
+      for (var page = 0; page < _maxPages; page++) {
+        final body = {...request, if (pageToken != null) 'pageToken': pageToken};
+        final response = await _client
+            .post(
+              Uri.parse('$_baseUrl/places:searchText'),
+              headers: {
+                HttpHeaders.contentTypeHeader: 'application/json',
+                'X-Goog-Api-Key': _apiKey,
+                'X-Goog-FieldMask': _fieldMask,
+              },
+              body: json.encode(body),
+            )
+            .timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
+        if (response.statusCode != 200) {
+          final snippet = response.body
+              .substring(0, response.body.length.clamp(0, 300));
+          // Si ya hay páginas cargadas, devolver lo obtenido
+          if (stations.isNotEmpty) break;
+          throw Exception('Google Places HTTP ${response.statusCode}: $snippet');
+        }
+
         final data = json.decode(response.body) as Map<String, dynamic>;
         final places = data['places'] as List<dynamic>? ?? [];
-        debugPrint('[WhereCargo] Google Places: ${places.length} resultados raw');
-        return places
+        stations.addAll(places
             .map((p) => _mapToChargingStation(
                   p as Map<String, dynamic>,
                   latitude,
                   longitude,
                 ))
-            .where((s) => s != null)
-            .cast<ChargingStation>()
-            .toList();
-      }
+            .whereType<ChargingStation>());
 
-      // No lanzar excepción — devolver lista vacía para que OCM/OSM sigan funcionando
-      debugPrint('[WhereCargo] Google Places HTTP ${response.statusCode}: ${response.body.substring(0, response.body.length.clamp(0, 300))}');
-      return [];
+        pageToken = data['nextPageToken'] as String?;
+        if (pageToken == null) break;
+      }
+      debugPrint('[WhereCargo] Google Places: ${stations.length} resultados');
+      return stations;
     } on SocketException {
       throw Exception('Sin conexión a internet');
-    } catch (_) {
-      return [];
+    } catch (e) {
+      // Un timeout en la página 2 o 3 no debe descartar las anteriores
+      if (stations.isNotEmpty) return stations;
+      rethrow;
+    }
+  }
+
+  /// Busca en Google la estación ubicada en [latitude], [longitude].
+  ///
+  /// Se usa al abrir el detalle de una estación de OCM u OSM: la búsqueda por
+  /// nombre alrededor del punto encuentra lugares que la carga por zona no
+  /// trajo (Text Search devuelve máximo 60 por zona). El repositorio decide
+  /// cuál de los resultados es la misma estación.
+  Future<List<ChargingStation>> findStationsNear({
+    required String name,
+    required double latitude,
+    required double longitude,
+  }) async {
+    if (_apiKey.isEmpty) {
+      throw Exception('GOOGLE_PLACES_API_KEY no definida en la compilación');
+    }
+    try {
+      final response = await _client
+          .post(
+            Uri.parse('$_baseUrl/places:searchText'),
+            headers: {
+              HttpHeaders.contentTypeHeader: 'application/json',
+              'X-Goog-Api-Key': _apiKey,
+              'X-Goog-FieldMask': _placeFields,
+            },
+            body: json.encode({
+              'textQuery': name,
+              'includedType': 'electric_vehicle_charging_station',
+              'pageSize': 5,
+              'locationBias': {
+                'circle': {
+                  'center': {'latitude': latitude, 'longitude': longitude},
+                  'radius': _nearbyMatchRadiusMeters,
+                },
+              },
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        throw Exception('Google Places HTTP ${response.statusCode}');
+      }
+      final data = json.decode(response.body) as Map<String, dynamic>;
+      return (data['places'] as List<dynamic>? ?? [])
+          .map((p) => _mapToChargingStation(
+                p as Map<String, dynamic>,
+                latitude,
+                longitude,
+              ))
+          .whereType<ChargingStation>()
+          .toList();
+    } on SocketException {
+      throw Exception('Sin conexión a internet');
     }
   }
 
@@ -137,11 +232,77 @@ class GooglePlacesService {
         paymentType: PaymentType.paid,
         website: place['websiteUri'] as String?,
         phoneNumber: place['nationalPhoneNumber'] as String?,
+        rating: (place['rating'] as num?)?.toDouble(),
+        reviewCount: (place['userRatingCount'] as num?)?.toInt(),
+        googleMapsUri: place['googleMapsUri'] as String?,
+        operatingSchedule: parseOpeningHours(
+          place['regularOpeningHours'] as Map<String, dynamic>?,
+        ),
         distanceKm: distanceKm,
       );
     } catch (_) {
       return null;
     }
+  }
+
+  /// Convierte `regularOpeningHours.periods` de Google en un horario semanal.
+  ///
+  /// Google usa día 0 = domingo y omite `close` cuando abre 24/7. Si un día
+  /// tiene varios turnos se toma desde el primero hasta el último, y un turno
+  /// que pasa de medianoche se muestra hasta las 23:59.
+  @visibleForTesting
+  static OperatingSchedule? parseOpeningHours(Map<String, dynamic>? hours) {
+    final periods = hours?['periods'] as List<dynamic>?;
+    if (periods == null || periods.isEmpty) return null;
+
+    String time(Map<String, dynamic> point) =>
+        '${(point['hour'] as num? ?? 0).toString().padLeft(2, '0')}:'
+        '${(point['minute'] as num? ?? 0).toString().padLeft(2, '0')}';
+
+    final opens = <int, String>{};
+    final closes = <int, String>{};
+    for (final raw in periods) {
+      final open = (raw as Map<String, dynamic>)['open'] as Map<String, dynamic>?;
+      if (open == null) continue;
+      final close = raw['close'] as Map<String, dynamic>?;
+      if (close == null) return OperatingSchedule.default24x7();
+
+      final googleDay = (open['day'] as num?)?.toInt() ?? 0;
+      final day = googleDay == 0 ? 7 : googleDay;
+      final openTime = time(open);
+      final closeTime = (close['day'] as num?)?.toInt() == googleDay
+          ? time(close)
+          : '23:59';
+      if (opens[day] == null || openTime.compareTo(opens[day]!) < 0) {
+        opens[day] = openTime;
+      }
+      if (closes[day] == null || closeTime.compareTo(closes[day]!) > 0) {
+        closes[day] = closeTime;
+      }
+    }
+    if (opens.isEmpty) return null;
+
+    return OperatingSchedule(
+      hours: List.generate(7, (i) {
+        final day = i + 1;
+        final open = opens[day];
+        if (open == null) {
+          return OperatingHours(
+            dayOfWeek: day,
+            openTime: '00:00',
+            closeTime: '00:00',
+            isClosed: true,
+          );
+        }
+        final close = closes[day]!;
+        return OperatingHours(
+          dayOfWeek: day,
+          openTime: open,
+          closeTime: close,
+          is24Hours: open == '00:00' && close == '23:59',
+        );
+      }),
+    );
   }
 
   /// Extrae ciudad y país del último segmento de la dirección formateada de Google.
@@ -183,8 +344,9 @@ class GooglePlacesService {
       return connectors;
     }
 
+    // La API (New) devuelve los conectores agrupados en `connectorAggregation`
     final connectorList =
-        evChargeOptions['connectors'] as List<dynamic>? ?? [];
+        evChargeOptions['connectorAggregation'] as List<dynamic>? ?? [];
 
     if (connectorList.isEmpty) {
       final count =
@@ -206,21 +368,34 @@ class GooglePlacesService {
       final typeStr = c['type'] as String? ?? '';
       final maxRate = (c['maxChargeRateKw'] as num?)?.toDouble() ?? 0;
       final count = (c['count'] as num?)?.toInt() ?? 1;
-      final availableCount = (c['availableCount'] as num?)?.toInt() ?? count;
+      // Disponibilidad en tiempo real: solo existe para algunas redes
+      final availableCount = (c['availableCount'] as num?)?.toInt();
+      final outOfService = (c['outOfServiceCount'] as num?)?.toInt() ?? 0;
 
-      final connType = _mapConnectorType(typeStr);
+      // Tomacorrientes domésticos no sirven como punto de carga EV
+      if (typeStr == 'EV_CONNECTOR_TYPE_UNSPECIFIED_WALL_OUTLET') continue;
+
+      final connType = _mapConnectorType(typeStr, maxRate);
       final chargingType = _inferChargingType(connType, maxRate);
       final powerKw = maxRate > 0 ? maxRate : _defaultPowerKw(connType);
 
       for (int i = 0; i < count; i++) {
+        final ConnectorStatus status;
+        if (availableCount == null) {
+          status = ConnectorStatus.available;
+        } else if (i < availableCount) {
+          status = ConnectorStatus.available;
+        } else if (i < availableCount + outOfService) {
+          status = ConnectorStatus.unavailable;
+        } else {
+          status = ConnectorStatus.occupied;
+        }
         connectors.add(Connector(
           id: '${stationId}_conn_${index++}',
           type: connType,
           chargingType: chargingType,
           powerKw: powerKw,
-          status: i < availableCount
-              ? ConnectorStatus.available
-              : ConnectorStatus.occupied,
+          status: status,
         ));
       }
     }
@@ -238,8 +413,12 @@ class GooglePlacesService {
     return connectors;
   }
 
-  ConnectorType _mapConnectorType(String typeStr) {
+  ConnectorType _mapConnectorType(String typeStr, double maxRateKw) {
     switch (typeStr) {
+      case 'EV_CONNECTOR_TYPE_NACS':
+        return ConnectorType.tesla;
+      case 'EV_CONNECTOR_TYPE_UNSPECIFIED_GB_T':
+        return maxRateKw > 22 ? ConnectorType.gbtDc : ConnectorType.gbtAc;
       case 'EV_CONNECTOR_TYPE_J1772':
         return ConnectorType.type1;
       case 'EV_CONNECTOR_TYPE_TYPE_2':
@@ -263,6 +442,7 @@ class GooglePlacesService {
       case ConnectorType.ccs2:
       case ConnectorType.chademo:
       case ConnectorType.tesla:
+      case ConnectorType.gbtDc:
         return ChargingType.dc;
       default:
         return powerKw > 22 ? ChargingType.dc : ChargingType.ac;

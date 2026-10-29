@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:geocoding/geocoding.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../domain/enums/charging_enums.dart';
 import '../../domain/models/charging_station.dart';
 import '../../data/repositories/charging_stations_repository.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/favorites_service.dart';
+import '../../../../shared/services/stations_service.dart';
 import '../../../navigation_apps/presentation/widgets/navigation_options_sheet.dart';
 
 /// Página de detalle de una estación de carga
@@ -23,10 +25,13 @@ class StationDetailPage extends StatefulWidget {
 
 class _StationDetailPageState extends State<StationDetailPage> {
   final FavoritesService _favoritesService = FavoritesService();
+  // Instancia compartida: reutiliza el cache cargado por el Mapa
   final ChargingStationsRepository _repository = ChargingStationsRepository();
 
   late ChargingStation _station;
   bool _isRefreshing = false;
+  // Ya se consultaron las fuentes para completar la estación
+  bool _lookupDone = false;
   DateTime? _lastRefreshed;
   String? _resolvedAddress; // dirección obtenida por geocodificación inversa
   String? _resolvedCity;    // ciudad obtenida por geocodificación inversa
@@ -38,7 +43,7 @@ class _StationDetailPageState extends State<StationDetailPage> {
     _station = widget.station;
     _favoritesService.addListener(_onFavoritesChanged);
     _favoritesService.loadFavorites();
-    _refreshStationData();
+    _enrichStation();
     _resolveAddress();
   }
 
@@ -92,36 +97,45 @@ class _StationDetailPageState extends State<StationDetailPage> {
     }
   }
 
-  /// Refresca los datos de la estación desde la API
-  Future<void> _refreshStationData() async {
+  /// Completa los datos de la estación con las demás fuentes (conectores,
+  /// horario, contacto…) y refresca su disponibilidad. La pantalla se muestra
+  /// de inmediato con lo que ya se tenía y se actualiza al llegar los datos.
+  Future<void> _enrichStation({bool forceRefresh = false}) async {
     if (_isRefreshing) return;
-
-    // Solo refrescar estaciones que vienen de OCM (IDs numéricos puros).
-    // OSM usa prefijo "osm_" y Google Places "gpl_" — si se intenta refrescar
-    // esos IDs contra OCM, OCM retorna una estación incorrecta que sobrescribe
-    // los datos originales (causa: el endpoint /poi/?chargepointid= acepta el
-    // parámetro pero ignora valores no numéricos, devolviendo resultados aleatorios).
-    final isOcmStation = int.tryParse(_station.id) != null;
-    if (!isOcmStation) return;
-
     setState(() => _isRefreshing = true);
-    
+
     try {
-      final refreshed = await _repository.refreshStation(_station);
-      if (mounted && refreshed != null) {
-        setState(() {
-          // Preservar la distancia original ya que no cambia
-          _station = refreshed.copyWith(distanceKm: _station.distanceKm);
-          _lastRefreshed = DateTime.now();
-        });
-      }
-    } catch (e) {
-      // Silenciosamente manejar el error, mantener datos originales
-      debugPrint('Error refrescando estación: $e');
+      final enriched = await _repository.enrichStation(
+        _station,
+        forceRefresh: forceRefresh,
+      );
+      if (!mounted) return;
+      setState(() {
+        _station = enriched;
+        _lastRefreshed = DateTime.now();
+      });
+      StationsService().replaceStation(enriched);
     } finally {
       if (mounted) {
-        setState(() => _isRefreshing = false);
+        setState(() {
+          _isRefreshing = false;
+          _lookupDone = true;
+        });
       }
+    }
+  }
+
+  Future<void> _openUrl(Uri uri) async {
+    bool opened;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir el enlace')),
+      );
     }
   }
 
@@ -161,6 +175,10 @@ class _StationDetailPageState extends State<StationDetailPage> {
                 _buildLocationSection(context),
                 const Divider(),
                 _buildScheduleSection(context),
+                if (station.phoneNumber != null || station.website != null) ...[
+                  const Divider(),
+                  _buildContactSection(context),
+                ],
                 if (station.amenities != null &&
                     station.amenities!.isNotEmpty) ...[
                   const Divider(),
@@ -247,8 +265,9 @@ class _StationDetailPageState extends State<StationDetailPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Banner de datos limitados (estaciones sin información completa de conectores)
-          if (!station.hasCompleteData) ...[
+          // Banner de datos limitados: solo cuando ya se buscó en las demás
+          // fuentes (mientras tanto el banner de estado indica la búsqueda)
+          if (!station.hasCompleteData && _lookupDone) ...[
             _buildLimitedDataBanner(),
             const SizedBox(height: 12),
           ],
@@ -346,15 +365,27 @@ class _StationDetailPageState extends State<StationDetailPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Esta estación fue reportada por fuentes externas pero no incluye '
-                  'datos verificados de conectores ni potencia. Te recomendamos '
-                  'confirmar con el operador antes de cargar.',
+                  'No pudimos obtener información de los conectores ni de la '
+                  'potencia de esta estación. Te recomendamos confirmar con '
+                  'el operador antes de cargar.',
                   style: TextStyle(
                     color: Colors.amber.shade900,
                     fontSize: 12,
                     height: 1.3,
                   ),
                 ),
+                if (station.googleMapsUri != null)
+                  TextButton.icon(
+                    onPressed: () =>
+                        _openUrl(Uri.parse(station.googleMapsUri!)),
+                    icon: const Icon(Icons.photo_library_outlined, size: 18),
+                    label: const Text('Ver fotos y reseñas en Google Maps'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.amber.shade900,
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -381,8 +412,10 @@ class _StationDetailPageState extends State<StationDetailPage> {
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
             const SizedBox(width: 8),
-            const Text(
-              'Verificando disponibilidad...',
+            Text(
+              _lookupDone
+                  ? 'Verificando disponibilidad...'
+                  : 'Buscando información de la estación...',
               style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
           ] else ...[
@@ -398,7 +431,7 @@ class _StationDetailPageState extends State<StationDetailPage> {
             ),
             const Spacer(),
             GestureDetector(
-              onTap: _refreshStationData,
+              onTap: () => _enrichStation(forceRefresh: true),
               child: const Icon(
                 Icons.refresh,
                 size: 18,
@@ -649,29 +682,35 @@ class _StationDetailPageState extends State<StationDetailPage> {
                     ),
               ),
               const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: station.isOpen
-                      ? AppColors.success.withValues(alpha: 0.1)
-                      : AppColors.error.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  station.isOpen ? 'Abierto ahora' : 'Cerrado',
-                  style: TextStyle(
-                    color: station.isOpen ? AppColors.success : AppColors.error,
-                    fontWeight: FontWeight.w600,
+              if (station.operatingSchedule != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: station.isOpen
+                        ? AppColors.success.withValues(alpha: 0.1)
+                        : AppColors.error.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    station.isOpen ? 'Abierto ahora' : 'Cerrado',
+                    style: TextStyle(
+                      color: station.isOpen ? AppColors.success : AppColors.error,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 12),
-          if (station.operatingSchedule?.is24x7 == true)
+          if (station.operatingSchedule == null)
+            Text(
+              _isRefreshing ? 'Buscando horario...' : 'Horario no disponible',
+              style: const TextStyle(color: AppColors.textSecondary),
+            )
+          else if (station.operatingSchedule!.is24x7)
             const Row(
               children: [
                 Icon(Icons.access_time, color: AppColors.success),
@@ -679,7 +718,7 @@ class _StationDetailPageState extends State<StationDetailPage> {
                 Text('Abierto 24 horas, 7 días a la semana'),
               ],
             )
-          else if (station.operatingSchedule != null)
+          else
             ...station.operatingSchedule!.hours.map(
               (hours) => Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
@@ -703,6 +742,45 @@ class _StationDetailPageState extends State<StationDetailPage> {
                   ],
                 ),
               ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContactSection(BuildContext context) {
+    final phone = station.phoneNumber;
+    final website = station.website;
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Contacto',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+          const SizedBox(height: 4),
+          if (phone != null)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.phone, color: AppColors.primary),
+              title: Text(phone),
+              onTap: () => _openUrl(
+                Uri(scheme: 'tel', path: phone.replaceAll(RegExp(r'\s'), '')),
+              ),
+            ),
+          if (website != null)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.language, color: AppColors.primary),
+              title: Text(
+                Uri.tryParse(website)?.host.replaceFirst('www.', '') ??
+                    website,
+              ),
+              onTap: () => _openUrl(Uri.parse(website)),
             ),
         ],
       ),
