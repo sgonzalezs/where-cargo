@@ -40,6 +40,9 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
 
   Vehicle? get _vehicle => _vehicleService.primaryVehicle;
 
+  /// Nivel mientras el usuario arrastra el control (se guarda al soltar).
+  double? _draggingPercent;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -263,7 +266,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
   }
 
   Widget _buildBatteryStatus() {
-    final batteryPercent = _vehicle!.currentBatteryPercent;
+    final batteryPercent = _draggingPercent ?? _vehicle!.currentBatteryPercent;
     final batteryColor = batteryPercent > 50
         ? AppColors.success
         : batteryPercent > 20
@@ -285,7 +288,7 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Estado de Batería',
+                  'Carga actual',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -335,15 +338,22 @@ class _VehicleStatusPageState extends State<VehicleStatusPage> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(
-                value: batteryPercent / 100,
-                minHeight: 12,
-                backgroundColor: Colors.grey[200],
-                valueColor: AlwaysStoppedAnimation(batteryColor),
-              ),
+            const SizedBox(height: 8),
+            Slider(
+              value: batteryPercent,
+              max: 100,
+              divisions: 20,
+              label: '${batteryPercent.toStringAsFixed(0)}%',
+              activeColor: batteryColor,
+              onChanged: (value) => setState(() => _draggingPercent = value),
+              onChangeEnd: (value) async {
+                await _vehicleService.updateBatteryLevel(_vehicle!.id, value);
+                if (mounted) setState(() => _draggingPercent = null);
+              },
+            ),
+            const Text(
+              'Ajusta la carga de tu vehículo para calcular la autonomía.',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
             ),
           ],
         ),

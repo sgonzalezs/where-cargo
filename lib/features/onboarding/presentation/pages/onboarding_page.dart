@@ -326,7 +326,6 @@ class _VehicleSlideState extends State<_VehicleSlide> {
   final _formKey = GlobalKey<FormState>();
 
   final _selectorKey = GlobalKey<VehicleModelSelectorState>();
-  final Set<String> _selectedConnectors = {};
   VehicleCatalog? _catalog;
 
   bool _isSaving = false;
@@ -342,21 +341,12 @@ class _VehicleSlideState extends State<_VehicleSlide> {
   Future<void> _saveVehicle() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedConnectors.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona al menos un conector')),
-      );
-      return;
-    }
-
     setState(() => _isSaving = true);
 
     try {
       final vehicle = _selectorKey.currentState!.buildVehicle(
         id: 'vehicle_${DateTime.now().millisecondsSinceEpoch}',
         year: DateTime.now().year,
-        currentBatteryPercent: 100,
-        connectors: _selectedConnectors.toList(),
         isPrimary: true,
       );
 
@@ -431,52 +421,8 @@ class _VehicleSlideState extends State<_VehicleSlide> {
               VehicleModelSelector(
                 key: _selectorKey,
                 catalog: _catalog!,
-                onVariantChanged: (variant) {
-                  if (variant == null) return;
-                  setState(() {
-                    _selectedConnectors
-                      ..clear()
-                      ..addAll(variant.connectors);
-                  });
-                },
               ),
             const SizedBox(height: 24),
-
-            // Conectores
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Conectores compatibles',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: vehicleConnectorOptions.map((connector) {
-                final isSelected = _selectedConnectors.contains(connector.id);
-                return FilterChip(
-                  label: Text(connector.name),
-                  selected: isSelected,
-                  onSelected: (selected) {
-                    setState(() {
-                      if (selected) {
-                        _selectedConnectors.add(connector.id);
-                      } else {
-                        _selectedConnectors.remove(connector.id);
-                      }
-                    });
-                  },
-                  selectedColor: AppColors.primary.withValues(alpha: 0.2),
-                  checkmarkColor: AppColors.primary,
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 32),
 
             // Botones
             SizedBox(

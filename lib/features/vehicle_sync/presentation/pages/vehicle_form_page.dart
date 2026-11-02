@@ -1,46 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../domain/models/vehicle.dart';
-import '../../domain/models/vehicle_catalog.dart';
+import '../../domain/models/vehicle_catalog.dart' show VehicleCatalog;
 import '../../../../core/theme/app_colors.dart';
 import '../../../../shared/services/vehicle_catalog_service.dart';
 import '../../../../shared/services/vehicle_service.dart';
 import '../widgets/vehicle_model_selector.dart';
-
-/// TextInputFormatter personalizado que limita números en un rango específico
-class RangeInputFormatter extends TextInputFormatter {
-  final int maxValue;
-
-  RangeInputFormatter({required this.maxValue});
-
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    if (newValue.text.isEmpty) {
-      return newValue;
-    }
-
-    // Permitir solo dígitos
-    if (!RegExp(r'^[0-9]*$').hasMatch(newValue.text)) {
-      return oldValue;
-    }
-
-    final intValue = int.tryParse(newValue.text);
-    if (intValue == null) {
-      return oldValue;
-    }
-
-    // Si el valor excede el máximo, rechazar
-    if (intValue > maxValue) {
-      return oldValue;
-    }
-
-    return newValue;
-  }
-}
 
 /// Página para agregar o editar un vehículo
 class VehicleFormPage extends StatefulWidget {
@@ -61,9 +26,7 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
   // Controllers
   late TextEditingController _nameController;
   late TextEditingController _yearController;
-  late TextEditingController _currentBatteryController;
 
-  Set<String> _selectedConnectors = {};
   VehicleCatalog? _catalog;
 
   bool _isSaving = false;
@@ -85,20 +48,12 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
     _yearController = TextEditingController(
       text: v?.year.toString() ?? DateTime.now().year.toString(),
     );
-    _currentBatteryController = TextEditingController(
-      text: v?.currentBatteryPercent.toStringAsFixed(0) ?? '100',
-    );
-
-    if (v != null) {
-      _selectedConnectors = v.compatibleConnectors.toSet();
-    }
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _yearController.dispose();
-    _currentBatteryController.dispose();
     super.dispose();
   }
 
@@ -127,10 +82,6 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _buildBasicInfoSection(),
-                    const SizedBox(height: 24),
-                    _buildBatterySection(),
-                    const SizedBox(height: 24),
-                    _buildConnectorsSection(),
                     const SizedBox(height: 32),
                     _buildSaveButton(),
                     const SizedBox(height: 16),
@@ -177,13 +128,6 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
               key: _selectorKey,
               catalog: _catalog!,
               initialVehicle: widget.vehicle,
-              onVariantChanged: (variant) {
-                if (variant != null) {
-                  setState(
-                    () => _selectedConnectors = variant.connectors.toSet(),
-                  );
-                }
-              },
             ),
             const SizedBox(height: 16),
 
@@ -212,127 +156,6 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
     );
   }
 
-  Widget _buildBatterySection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(
-                  Icons.battery_charging_full,
-                  color: AppColors.success,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'Nivel de Batería',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            // Nivel de batería actual
-            TextFormField(
-              controller: _currentBatteryController,
-              keyboardType: TextInputType.number,
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                RangeInputFormatter(maxValue: 100),
-              ],
-              decoration: const InputDecoration(
-                labelText: 'Nivel de batería actual (%)',
-                hintText: 'Ej: 80',
-                prefixIcon: Icon(Icons.battery_std),
-                suffixText: '%',
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) return null;
-                final percent = double.tryParse(value);
-                if (percent == null || percent < 0 || percent > 100) {
-                  return 'Porcentaje inválido (0-100)';
-                }
-                return null;
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildConnectorsSection() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.power, color: AppColors.secondary),
-                const SizedBox(width: 8),
-                Text(
-                  'Conectores Compatibles',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Se precargan según la versión elegida. Ajústalos si tu vehículo es distinto (p. ej. importado).',
-              style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-            ),
-            const SizedBox(height: 16),
-
-            ...vehicleConnectorOptions.map((connector) {
-              final isSelected = _selectedConnectors.contains(connector.id);
-
-              return CheckboxListTile(
-                value: isSelected,
-                title: Text(connector.name),
-                subtitle: Text(
-                  connector.description,
-                  style: const TextStyle(fontSize: 12),
-                ),
-                secondary: Icon(
-                  Icons.power,
-                  color: isSelected
-                      ? AppColors.primary
-                      : AppColors.textSecondary,
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    if (value == true) {
-                      _selectedConnectors.add(connector.id);
-                    } else {
-                      _selectedConnectors.remove(connector.id);
-                    }
-                  });
-                },
-              );
-            }),
-
-            if (_selectedConnectors.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  '* Selecciona al menos un conector',
-                  style: TextStyle(color: AppColors.error, fontSize: 12),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildSaveButton() {
     return ElevatedButton(
       onPressed: _isSaving ? null : _saveVehicle,
@@ -352,13 +175,6 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
   Future<void> _saveVehicle() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_selectedConnectors.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona al menos un conector')),
-      );
-      return;
-    }
-
     setState(() => _isSaving = true);
 
     try {
@@ -370,9 +186,7 @@ class _VehicleFormPageState extends State<VehicleFormPage> {
             ? null
             : _nameController.text.trim(),
         year: int.parse(_yearController.text),
-        currentBatteryPercent:
-            double.tryParse(_currentBatteryController.text) ?? 100,
-        connectors: _selectedConnectors.toList(),
+        currentBatteryPercent: widget.vehicle?.currentBatteryPercent ?? 100,
         isPrimary: widget.vehicle?.isPrimary ?? false,
         createdAt: widget.vehicle?.createdAt,
       );

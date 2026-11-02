@@ -94,8 +94,10 @@ class UserDataRepository {
   }
 
   /// Documento normalizado del vehículo: los del catálogo guardan solo
-  /// `model_id`/`variant_id` (y `connectors` si el usuario cambió los de la
-  /// versión); los personalizados guardan sus especificaciones en `custom`.
+  /// `model_id`/`variant_id`; los personalizados guardan sus
+  /// especificaciones en `custom` (con `brand_id` si la marca está en el
+  /// catálogo, o `brand` como texto si no). El nivel de batería no se guarda:
+  /// es un dato del momento.
   @visibleForTesting
   static Map<String, dynamic> vehicleToDoc(
     String uid,
@@ -108,17 +110,17 @@ class UserDataRepository {
       'user_id': uid,
       'name': vehicle.name,
       'year': vehicle.year,
-      'current_battery_percent': vehicle.currentBatteryPercent,
       'is_primary': vehicle.isPrimary,
       'created_at': Timestamp.fromDate(vehicle.createdAt),
       if (variant != null) ...{
         'model_id': vehicle.modelId,
         'variant_id': vehicle.variantId,
-        if (!_sameConnectors(vehicle.compatibleConnectors, variant.connectors))
-          'connectors': vehicle.compatibleConnectors,
       } else
         'custom': {
-          'brand': vehicle.brand,
+          if (catalog.brandById(vehicle.brandId ?? '') != null)
+            'brand_id': vehicle.brandId
+          else
+            'brand': vehicle.brand,
           'model': vehicle.model,
           'battery_capacity_kwh': vehicle.batteryCapacityKwh,
           'range_km': vehicle.estimatedRangeKm,
@@ -138,7 +140,6 @@ class UserDataRepository {
       final id = data['id'] as String;
       final name = data['name'] as String?;
       final year = data['year'] as int;
-      final percent = (data['current_battery_percent'] as num).toDouble();
       final isPrimary = data['is_primary'] as bool? ?? false;
       final createdAt = (data['created_at'] as Timestamp?)?.toDate();
 
@@ -155,22 +156,24 @@ class UserDataRepository {
           model: model,
           variant: variant,
           year: year,
-          currentBatteryPercent: percent,
-          connectors: (data['connectors'] as List<dynamic>?)?.cast<String>(),
           isPrimary: isPrimary,
           createdAt: createdAt,
         );
       }
 
       final custom = data['custom'] as Map<String, dynamic>;
+      final brandId = custom['brand_id'] as String?;
+      final brand = brandId == null ? null : catalog.brandById(brandId);
+      if (brandId != null && brand == null) return null;
       return Vehicle(
         id: id,
         name: name,
-        brand: custom['brand'] as String,
+        brandId: brand?.id,
+        brand: brand?.name ?? custom['brand'] as String,
         model: custom['model'] as String,
         year: year,
         batteryCapacityKwh: (custom['battery_capacity_kwh'] as num).toDouble(),
-        currentBatteryPercent: percent,
+        currentBatteryPercent: 100,
         estimatedRangeKm: (custom['range_km'] as num?)?.toDouble(),
         compatibleConnectors:
             (custom['connectors'] as List<dynamic>).cast<String>(),
@@ -182,7 +185,4 @@ class UserDataRepository {
       return null;
     }
   }
-
-  static bool _sameConnectors(List<String> a, List<String> b) =>
-      a.length == b.length && a.toSet().containsAll(b);
 }

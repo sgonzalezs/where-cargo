@@ -143,7 +143,8 @@ class VehicleService extends ChangeNotifier {
     await _saveVehicles();
   }
 
-  /// Actualiza el nivel de batería de un vehículo
+  /// Actualiza el nivel de batería de un vehículo. Solo se guarda en el
+  /// teléfono: en la nube no se guarda el nivel de batería.
   Future<void> updateBatteryLevel(String vehicleId, double percent) async {
     final index = _vehicles.indexWhere((v) => v.id == vehicleId);
     if (index == -1) return;
@@ -153,7 +154,7 @@ class VehicleService extends ChangeNotifier {
     );
 
     notifyListeners();
-    await _saveVehicles();
+    await _saveLocal();
   }
 
   /// Obtiene un vehículo por ID
@@ -167,6 +168,12 @@ class VehicleService extends ChangeNotifier {
 
   /// Guarda los vehículos en almacenamiento local y, con sesión, en Firestore
   Future<void> _saveVehicles() async {
+    await _saveLocal();
+    final snapshot = List.of(_vehicles);
+    _syncRemote((repo, uid) => repo.saveVehicles(uid, snapshot));
+  }
+
+  Future<void> _saveLocal() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonList = _vehicles.map((v) => v.toJson()).toList();
@@ -174,8 +181,6 @@ class VehicleService extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error saving vehicles: $e');
     }
-    final snapshot = List.of(_vehicles);
-    _syncRemote((repo, uid) => repo.saveVehicles(uid, snapshot));
   }
 
   /// Asocia los vehículos a la cuenta con sesión iniciada ([uid] null al
@@ -237,15 +242,43 @@ class VehicleService extends ChangeNotifier {
     return changed;
   }
 
+  /// Vehículos del catálogo: toman las especificaciones y conectores de su
+  /// versión (corrige datos guardados antes o ajustes de conectores que ya
+  /// no se permiten).
+  ///
   /// Vehículos sin modelo del catálogo (guardados antes de existir o como
-  /// "Otro modelo"): si el modelo existe en el catálogo se enlaza a la versión con la batería
-  /// más parecida y se conservan los conectores que eligió el usuario.
+  /// "Otro modelo"): si el modelo existe en el catálogo se enlaza a la
+  /// versión con la batería más parecida, que define los conectores. Si solo
+  /// existe la marca, se guarda su [Vehicle.brandId].
   @visibleForTesting
   static Vehicle linkToCatalog(Vehicle vehicle, VehicleCatalog catalog) {
-    if (vehicle.modelId != null) return vehicle;
+    if (vehicle.modelId != null) {
+      final model = catalog.modelById(vehicle.modelId!);
+      final variant = model?.variantById(vehicle.variantId ?? '');
+      final brand = model == null ? null : catalog.brandById(model.brandId);
+      if (model == null || variant == null || brand == null) return vehicle;
+      final updated = Vehicle.fromCatalog(
+        id: vehicle.id,
+        name: vehicle.name,
+        brand: brand,
+        model: model,
+        variant: variant,
+        year: vehicle.year,
+        currentBatteryPercent: vehicle.currentBatteryPercent,
+        isPrimary: vehicle.isPrimary,
+        createdAt: vehicle.createdAt,
+      );
+      return json.encode(updated.toJson()) == json.encode(vehicle.toJson())
+          ? vehicle
+          : updated;
+    }
     final model = catalog.match(vehicle.brand, vehicle.model);
     final brand = model == null ? null : catalog.brandById(model.brandId);
-    if (model == null || brand == null) return vehicle;
+    if (model == null || brand == null) {
+      if (vehicle.brandId != null) return vehicle;
+      final known = catalog.brandByName(vehicle.brand);
+      return known == null ? vehicle : _withBrand(vehicle, known);
+    }
     return Vehicle.fromCatalog(
       id: vehicle.id,
       name: vehicle.name,
@@ -254,14 +287,30 @@ class VehicleService extends ChangeNotifier {
       variant: model.closestVariant(vehicle.batteryCapacityKwh),
       year: vehicle.year,
       currentBatteryPercent: vehicle.currentBatteryPercent,
-      connectors: vehicle.compatibleConnectors
-          .map((c) => c == 'nacs' ? 'tesla' : c)
-          .toSet()
-          .toList(),
       isPrimary: vehicle.isPrimary,
       createdAt: vehicle.createdAt,
     );
   }
+
+  static Vehicle _withBrand(Vehicle v, VehicleBrand brand) => Vehicle(
+        id: v.id,
+        name: v.name,
+        brandId: brand.id,
+        brand: brand.name,
+        model: v.model,
+        year: v.year,
+        batteryCapacityKwh: v.batteryCapacityKwh,
+        currentBatteryPercent: v.currentBatteryPercent,
+        estimatedRangeKm: v.estimatedRangeKm,
+        compatibleConnectors: v.compatibleConnectors
+            .map((c) => c == 'nacs' ? 'tesla' : c)
+            .toSet()
+            .toList(),
+        maxChargingPowerKw: v.maxChargingPowerKw,
+        imageUrl: v.imageUrl,
+        isPrimary: v.isPrimary,
+        createdAt: v.createdAt,
+      );
 
   /// Limpia todos los vehículos
   Future<void> clearAll() async {

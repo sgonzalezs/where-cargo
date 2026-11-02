@@ -5,10 +5,15 @@ import 'vehicle_catalog.dart';
 /// Si [modelId] y [variantId] apuntan al catálogo, las especificaciones
 /// (batería, autonomía, potencia) vienen de allí y en la nube solo se guarda
 /// la referencia. Si son null es un vehículo personalizado ("Otro modelo")
-/// y sus especificaciones las escribió el usuario.
+/// y sus especificaciones las escribió el usuario; [brandId] se conserva si
+/// la marca sí está en el catálogo.
+///
+/// [currentBatteryPercent] es el nivel de carga del momento: solo se guarda
+/// en el teléfono, no en la nube.
 class Vehicle {
   final String id;
   final String? name;
+  final String? brandId;
   final String? modelId;
   final String? variantId;
   final String brand;
@@ -29,6 +34,7 @@ class Vehicle {
   Vehicle({
     required this.id,
     this.name,
+    this.brandId,
     this.modelId,
     this.variantId,
     required this.brand,
@@ -45,8 +51,8 @@ class Vehicle {
     DateTime? createdAt,
   }) : createdAt = createdAt ?? _createdAtFromId(id) ?? DateTime.now();
 
-  /// Vehículo del catálogo. [connectors] permite ajustar los conectores de
-  /// la versión (p. ej. un vehículo importado con otro estándar).
+  /// Vehículo del catálogo: especificaciones y conectores son los de la
+  /// versión.
   factory Vehicle.fromCatalog({
     required String id,
     String? name,
@@ -55,13 +61,13 @@ class Vehicle {
     required VehicleVariant variant,
     required int year,
     double currentBatteryPercent = 100,
-    List<String>? connectors,
     bool isPrimary = false,
     DateTime? createdAt,
   }) {
     return Vehicle(
       id: id,
       name: name,
+      brandId: brand.id,
       modelId: model.id,
       variantId: variant.id,
       brand: brand.name,
@@ -71,7 +77,7 @@ class Vehicle {
       batteryCapacityKwh: variant.batteryKwh,
       currentBatteryPercent: currentBatteryPercent,
       estimatedRangeKm: variant.rangeKm,
-      compatibleConnectors: connectors ?? variant.connectors,
+      compatibleConnectors: variant.connectors,
       maxChargingPowerKw: variant.maxDcKw,
       isPrimary: isPrimary,
       createdAt: createdAt,
@@ -139,6 +145,7 @@ class Vehicle {
     return Vehicle(
       id: json['id'] as String,
       name: json['name'] as String?,
+      brandId: json['brand_id'] as String?,
       modelId: json['model_id'] as String?,
       variantId: json['variant_id'] as String?,
       brand: json['brand'] as String,
@@ -166,6 +173,7 @@ class Vehicle {
     return {
       'id': id,
       'name': name,
+      'brand_id': brandId,
       'model_id': modelId,
       'variant_id': variantId,
       'brand': brand,
@@ -197,6 +205,7 @@ class Vehicle {
     return Vehicle(
       id: id ?? this.id,
       name: name ?? this.name,
+      brandId: brandId,
       modelId: modelId,
       variantId: variantId,
       brand: brand,

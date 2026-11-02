@@ -13,7 +13,7 @@ void main() {
         as Map<String, dynamic>,
   );
 
-  Vehicle dolphin({List<String>? connectors}) {
+  Vehicle dolphin() {
     final model = catalog.modelById('byd_dolphin')!;
     return Vehicle.fromCatalog(
       id: 'vehicle_1700000000000',
@@ -23,7 +23,6 @@ void main() {
       variant: model.variantById('60')!,
       year: 2024,
       currentBatteryPercent: 80,
-      connectors: connectors,
       isPrimary: true,
     );
   }
@@ -108,7 +107,10 @@ void main() {
       expect(doc['user_id'], 'uid1');
       expect(doc['model_id'], 'byd_dolphin');
       expect(doc['variant_id'], '60');
-      for (final key in ['brand', 'model', 'battery_capacity_kwh', 'custom', 'connectors']) {
+      for (final key in [
+        'brand', 'model', 'battery_capacity_kwh', 'custom', 'connectors',
+        'current_battery_percent',
+      ]) {
         expect(doc.containsKey(key), isFalse, reason: key);
       }
 
@@ -116,22 +118,44 @@ void main() {
       expect(back.fullModelName, 'BYD Dolphin 60.4 kWh');
       expect(back.batteryCapacityKwh, 60.4);
       expect(back.compatibleConnectors, ['ccs2', 'type2']);
-      expect(back.currentBatteryPercent, 80);
+      // La carga actual no viaja a la nube
+      expect(back.currentBatteryPercent, 100);
       expect(back.isPrimary, isTrue);
       expect(back.createdAt, dolphin().createdAt);
     });
 
-    test('conectores ajustados por el usuario se guardan aparte', () {
-      final doc = UserDataRepository.vehicleToDoc(
-        'uid1',
-        dolphin(connectors: ['ccs2', 'type2', 'chademo']),
-        catalog,
+    test('los conectores del catálogo no se pueden cambiar', () {
+      // Documento de la app 1.1.0 con conectores ajustados por el usuario
+      final doc = UserDataRepository.vehicleToDoc('uid1', dolphin(), catalog)
+        ..['connectors'] = ['ccs2', 'type2', 'chademo']
+        ..['current_battery_percent'] = 40;
+      final back = UserDataRepository.vehicleFromDoc(doc, catalog)!;
+      expect(back.compatibleConnectors, ['ccs2', 'type2']);
+    });
+
+    test('personalizado de una marca del catálogo guarda brand_id', () {
+      final custom = Vehicle(
+        id: 'vehicle_4',
+        brandId: 'byd',
+        brand: 'BYD',
+        model: 'Modelo nuevo',
+        year: 2025,
+        batteryCapacityKwh: 70,
+        currentBatteryPercent: 100,
+        compatibleConnectors: ['type2', 'ccs2'],
       );
-      expect(doc['connectors'], ['ccs2', 'type2', 'chademo']);
-      expect(
-        UserDataRepository.vehicleFromDoc(doc, catalog)!.compatibleConnectors,
-        ['ccs2', 'type2', 'chademo'],
-      );
+      final doc = UserDataRepository.vehicleToDoc('uid1', custom, catalog);
+      final map = doc['custom'] as Map;
+      expect(map['brand_id'], 'byd');
+      expect(map.containsKey('brand'), isFalse);
+
+      final back = UserDataRepository.vehicleFromDoc(doc, catalog)!;
+      expect(back.brandId, 'byd');
+      expect(back.brand, 'BYD');
+      expect(back.isFromCatalog, isFalse);
+
+      (doc['custom'] as Map<String, dynamic>)['brand_id'] = 'no_existe';
+      expect(UserDataRepository.vehicleFromDoc(doc, catalog), isNull);
     });
 
     test('vehículo personalizado guarda sus datos en custom', () {
@@ -153,7 +177,7 @@ void main() {
       expect(back.isFromCatalog, isFalse);
       expect(back.fullModelName, 'Marca X Modelo Y');
       expect(back.estimatedRangeKm, 300);
-      expect(back.currentRangeKm, 180);
+      expect(back.currentRangeKm, 300);
     });
 
     test('modelo desconocido o documento antiguo se omite', () {
@@ -185,9 +209,42 @@ void main() {
       final linked = VehicleService.linkToCatalog(legacy, catalog);
       expect(linked.modelId, 'byd_dolphin');
       expect(linked.variantId, '60');
-      expect(linked.compatibleConnectors, ['ccs2', 'tesla']);
+      // Los conectores pasan a ser los de la versión
+      expect(linked.compatibleConnectors, ['ccs2', 'type2']);
       expect(linked.currentBatteryPercent, 50);
       expect(linked.createdAt, legacy.createdAt);
+    });
+
+    test('marca conocida con modelo nuevo guarda la marca del catálogo', () {
+      final legacy = Vehicle(
+        id: 'vehicle_5',
+        brand: 'b.y.d',
+        model: 'Modelo futuro',
+        year: 2026,
+        batteryCapacityKwh: 80,
+        currentBatteryPercent: 100,
+        compatibleConnectors: ['type2', 'nacs'],
+      );
+      final linked = VehicleService.linkToCatalog(legacy, catalog);
+      expect(linked.brandId, 'byd');
+      expect(linked.brand, 'BYD');
+      expect(linked.modelId, isNull);
+      expect(linked.compatibleConnectors, ['type2', 'tesla']);
+      expect(identical(VehicleService.linkToCatalog(linked, catalog), linked),
+          isTrue);
+    });
+
+    test('vehículo del catálogo con conectores ajustados vuelve a los de la versión', () {
+      final stored = Vehicle.fromJson({
+        ...dolphin().toJson(),
+        'compatible_connectors': ['ccs2', 'type2', 'chademo'],
+      });
+      final linked = VehicleService.linkToCatalog(stored, catalog);
+      expect(linked.compatibleConnectors, ['ccs2', 'type2']);
+      expect(linked.currentBatteryPercent, 80);
+      final same = dolphin();
+      expect(identical(VehicleService.linkToCatalog(same, catalog), same),
+          isTrue);
     });
 
     test('modelos que no están en el catálogo quedan personalizados', () {

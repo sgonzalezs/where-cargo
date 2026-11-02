@@ -9,10 +9,15 @@ service cloud.firestore {
     }
 
     // Vehículo normalizado: o referencia una versión existente del catálogo
-    // (model_id + variant_id) o es personalizado y trae sus datos en custom.
+    // (model_id + variant_id) o es personalizado y trae sus datos en custom,
+    // con brand_id de una marca existente o brand como texto.
+    // connectors y current_battery_percent solo se aceptan por la app 1.1.0,
+    // que aún los envía; las versiones nuevas ya no los guardan.
     function isValidVehicle(uid, vehicleId) {
       let v = request.resource.data;
       let modelPath = /databases/$(database)/documents/vehicle_models/$(v.get('model_id', '-'));
+      let custom = v.get('custom', {});
+      let brandPath = /databases/$(database)/documents/vehicle_brands/$(custom.get('brand_id', '-'));
       return v.id == vehicleId
         && v.user_id == uid
         && v.keys().hasOnly([
@@ -21,13 +26,13 @@ service cloud.firestore {
           'created_at', 'updated_at'
         ])
         && v.year is int
-        && v.current_battery_percent is number
         && (
           (v.get('model_id', null) is string
             && !('custom' in v)
             && exists(modelPath)
             && v.variant_id in get(modelPath).data.variants)
-          || (!('model_id' in v) && !('variant_id' in v) && v.custom is map)
+          || (!('model_id' in v) && !('variant_id' in v) && v.custom is map
+            && ('brand_id' in custom ? exists(brandPath) : custom.brand is string))
         );
     }
 

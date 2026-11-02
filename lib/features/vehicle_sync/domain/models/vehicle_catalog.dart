@@ -75,6 +75,12 @@ class VehicleCatalog {
     return null;
   }
 
+  /// Marca por nombre, sin distinguir mayúsculas ni signos ("B.Y.D." = "BYD").
+  VehicleBrand? brandByName(String name) {
+    final key = _normalize(name);
+    return brands.where((b) => _normalize(b.name) == key).firstOrNull;
+  }
+
   VehicleModel? modelById(String id) {
     for (final model in models) {
       if (model.id == id) return model;
@@ -223,16 +229,35 @@ class VehicleConnectorOption {
   final String name;
   final String description;
 
-  const VehicleConnectorOption(this.id, this.name, this.description);
+  /// Puertos en los que se puede elegir el conector de un vehículo
+  /// personalizado (Tesla NACS sirve para ambos).
+  final bool ac;
+  final bool dc;
+
+  const VehicleConnectorOption(
+    this.id,
+    this.name,
+    this.description, {
+    this.ac = false,
+    this.dc = false,
+  });
 }
 
 const List<VehicleConnectorOption> vehicleConnectorOptions = [
-  VehicleConnectorOption('ccs2', 'CCS2 (Combo 2)', 'Carga rápida DC'),
-  VehicleConnectorOption('type2', 'Type 2 (Mennekes)', 'Carga AC'),
-  VehicleConnectorOption('ccs1', 'CCS1 (Combo 1)', 'Carga rápida DC (EE. UU.)'),
-  VehicleConnectorOption('type1', 'Type 1 (J1772)', 'Carga AC (EE. UU.)'),
-  VehicleConnectorOption('chademo', 'CHAdeMO', 'Carga rápida DC (Japón)'),
-  VehicleConnectorOption('tesla', 'Tesla (NACS)', 'Conector propio de Tesla'),
-  VehicleConnectorOption('gbt_dc', 'GB/T DC', 'Carga rápida DC (China)'),
-  VehicleConnectorOption('gbt_ac', 'GB/T AC', 'Carga AC (China)'),
+  VehicleConnectorOption('ccs2', 'CCS2 (Combo 2)', 'Carga rápida DC', dc: true),
+  VehicleConnectorOption('type2', 'Type 2 (Mennekes)', 'Carga AC', ac: true),
+  VehicleConnectorOption('ccs1', 'CCS1 (Combo 1)', 'Carga rápida DC (EE. UU.)',
+      dc: true),
+  VehicleConnectorOption('type1', 'Type 1 (J1772)', 'Carga AC (EE. UU.)',
+      ac: true),
+  VehicleConnectorOption('chademo', 'CHAdeMO', 'Carga rápida DC (Japón)',
+      dc: true),
+  VehicleConnectorOption('tesla', 'Tesla (NACS)', 'Conector propio de Tesla',
+      ac: true, dc: true),
+  VehicleConnectorOption('gbt_dc', 'GB/T DC', 'Carga rápida DC (China)',
+      dc: true),
+  VehicleConnectorOption('gbt_ac', 'GB/T AC', 'Carga AC (China)', ac: true),
 ];
+
+VehicleConnectorOption? vehicleConnectorById(String id) =>
+    vehicleConnectorOptions.where((c) => c.id == id).firstOrNull;

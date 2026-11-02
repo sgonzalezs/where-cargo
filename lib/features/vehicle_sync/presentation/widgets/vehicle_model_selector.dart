@@ -7,21 +7,21 @@ import '../../domain/models/vehicle_catalog.dart';
 /// Selector de marca → modelo → versión desde el catálogo, con la opción
 /// "Otra marca"/"Otro modelo" para escribir las especificaciones a mano.
 ///
+/// Los conectores de una versión del catálogo son fijos (los del fabricante).
+/// En un modelo personalizado se elige un conector AC y, opcionalmente, uno
+/// DC: así el vehículo no queda marcado como compatible con estaciones a las
+/// que no puede conectarse.
+///
 /// Debe ir dentro de un [Form]. El vehículo se arma con
 /// [VehicleModelSelectorState.buildVehicle] usando un `GlobalKey`.
 class VehicleModelSelector extends StatefulWidget {
   final VehicleCatalog catalog;
   final Vehicle? initialVehicle;
 
-  /// Se llama al elegir una versión del catálogo (null al pasar a un modelo
-  /// personalizado), para precargar sus conectores.
-  final ValueChanged<VehicleVariant?>? onVariantChanged;
-
   const VehicleModelSelector({
     super.key,
     required this.catalog,
     this.initialVehicle,
-    this.onVariantChanged,
   });
 
   @override
@@ -30,10 +30,13 @@ class VehicleModelSelector extends StatefulWidget {
 
 class VehicleModelSelectorState extends State<VehicleModelSelector> {
   static const String _other = '__other__';
+  static const String _noDc = '__none__';
 
   String? _brandId;
   String? _modelId;
   String? _variantId;
+  String? _acConnector;
+  String? _dcConnector;
 
   final _customBrand = TextEditingController();
   final _customModel = TextEditingController();
@@ -64,9 +67,8 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
       return;
     }
     // Vehículo personalizado: conserva la marca si existe en el catálogo
-    final brand = _catalog.brands
-        .where((b) => b.name.toLowerCase() == v.brand.toLowerCase())
-        .firstOrNull;
+    final brand =
+        _catalog.brandById(v.brandId ?? '') ?? _catalog.brandByName(v.brand);
     _brandId = brand?.id ?? _other;
     _modelId = _other;
     _customBrand.text = v.brand;
@@ -74,6 +76,14 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
     _battery.text = _format(v.batteryCapacityKwh);
     _range.text = _format(v.estimatedRangeKm);
     _maxPower.text = _format(v.maxChargingPowerKw);
+    final options = v.compatibleConnectors.map(vehicleConnectorById).nonNulls;
+    _acConnector = options.where((c) => c.ac).firstOrNull?.id;
+    final dc = options.where((c) => c.dc && c.id != _acConnector).firstOrNull;
+    _dcConnector =
+        dc?.id ??
+        (_acConnector != null && vehicleConnectorById(_acConnector!)!.dc
+            ? _acConnector
+            : _noDc);
   }
 
   static String _format(double? value) {
@@ -99,7 +109,6 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
       _modelId = brandId == _other ? _other : null;
       _variantId = null;
     });
-    widget.onVariantChanged?.call(null);
   }
 
   void _selectModel(String? modelId) {
@@ -112,12 +121,10 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
           ? model.variants.first.id
           : null;
     });
-    widget.onVariantChanged?.call(_variant);
   }
 
   void _selectVariant(String? variantId) {
     setState(() => _variantId = variantId);
-    widget.onVariantChanged?.call(_variant);
   }
 
   /// Arma el vehículo con la selección actual. Llamar solo después de
@@ -126,8 +133,7 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
     required String id,
     String? name,
     required int year,
-    required double currentBatteryPercent,
-    required List<String> connectors,
+    double currentBatteryPercent = 100,
     bool isPrimary = false,
     DateTime? createdAt,
   }) {
@@ -142,7 +148,6 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
         variant: variant,
         year: year,
         currentBatteryPercent: currentBatteryPercent,
-        connectors: connectors,
         isPrimary: isPrimary,
         createdAt: createdAt,
       );
@@ -151,14 +156,20 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
     return Vehicle(
       id: id,
       name: name,
+      brandId: brand?.id,
       brand: brand?.name ?? _customBrand.text.trim(),
       model: _customModel.text.trim(),
       year: year,
       batteryCapacityKwh: double.parse(_battery.text.replaceAll(',', '.')),
       currentBatteryPercent: currentBatteryPercent,
       estimatedRangeKm: double.tryParse(_range.text),
-      compatibleConnectors: connectors,
-      maxChargingPowerKw: double.tryParse(_maxPower.text),
+      compatibleConnectors: {
+        _acConnector!,
+        if (_dcConnector != _noDc) _dcConnector!,
+      }.toList(),
+      maxChargingPowerKw: _dcConnector == _noDc
+          ? null
+          : double.tryParse(_maxPower.text),
       isPrimary: isPrimary,
       createdAt: createdAt,
     );
@@ -166,7 +177,8 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
 
   @override
   Widget build(BuildContext context) {
-    final brands = [..._catalog.brands]..sort((a, b) => a.name.compareTo(b.name));
+    final brands = [..._catalog.brands]
+      ..sort((a, b) => a.name.compareTo(b.name));
     final models = _brandId == null || _brandId == _other
         ? <VehicleModel>[]
         : _catalog.modelsOf(_brandId!);
@@ -216,8 +228,12 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
         ],
         if (_isCustom) ...[
           const SizedBox(height: 16),
-          _textField(_customModel, 'Modelo *', Icons.directions_car,
-              required: true),
+          _textField(
+            _customModel,
+            'Modelo *',
+            Icons.directions_car,
+            required: true,
+          ),
         ],
         if (model != null && model.variants.length > 1) ...[
           const SizedBox(height: 16),
@@ -234,7 +250,8 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
                 DropdownMenuItem(value: v.id, child: Text(v.name)),
             ],
             onChanged: _selectVariant,
-            validator: (value) => value == null ? 'Selecciona la versión' : null,
+            validator: (value) =>
+                value == null ? 'Selecciona la versión' : null,
           ),
         ],
         if (_variant != null) ...[
@@ -278,19 +295,55 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
         },
       ),
       const SizedBox(height: 16),
-      _textField(
-        _maxPower,
-        'Potencia máxima de carga DC (kW)',
-        Icons.flash_on,
-        suffix: 'kW',
-        validator: (value) {
-          if (value == null || value.isEmpty) return null;
-          final power = int.tryParse(value);
-          return power == null || power <= 0 || power > 500
-              ? 'Potencia inválida'
-              : null;
-        },
+      DropdownButtonFormField<String>(
+        initialValue: _acConnector,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Conector de carga AC *',
+          prefixIcon: Icon(Icons.power),
+        ),
+        items: [
+          for (final c in vehicleConnectorOptions.where((c) => c.ac))
+            DropdownMenuItem(value: c.id, child: Text(c.name)),
+        ],
+        onChanged: (value) => setState(() => _acConnector = value),
+        validator: (value) => value == null ? 'Selecciona el conector' : null,
       ),
+      const SizedBox(height: 16),
+      DropdownButtonFormField<String>(
+        initialValue: _dcConnector,
+        isExpanded: true,
+        decoration: const InputDecoration(
+          labelText: 'Conector de carga rápida DC *',
+          prefixIcon: Icon(Icons.flash_on),
+        ),
+        items: [
+          for (final c in vehicleConnectorOptions.where((c) => c.dc))
+            DropdownMenuItem(value: c.id, child: Text(c.name)),
+          const DropdownMenuItem(
+            value: _noDc,
+            child: Text('No tiene carga rápida'),
+          ),
+        ],
+        onChanged: (value) => setState(() => _dcConnector = value),
+        validator: (value) => value == null ? 'Selecciona una opción' : null,
+      ),
+      if (_dcConnector != _noDc) ...[
+        const SizedBox(height: 16),
+        _textField(
+          _maxPower,
+          'Potencia máxima de carga DC (kW)',
+          Icons.flash_on,
+          suffix: 'kW',
+          validator: (value) {
+            if (value == null || value.isEmpty) return null;
+            final power = int.tryParse(value);
+            return power == null || power <= 0 || power > 500
+                ? 'Potencia inválida'
+                : null;
+          },
+        ),
+      ],
     ];
   }
 
@@ -309,18 +362,20 @@ class VehicleModelSelectorState extends State<VehicleModelSelector> {
       keyboardType: isNumber
           ? TextInputType.numberWithOptions(decimal: decimal)
           : TextInputType.text,
-      textCapitalization:
-          isNumber ? TextCapitalization.none : TextCapitalization.words,
+      textCapitalization: isNumber
+          ? TextCapitalization.none
+          : TextCapitalization.words,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon),
         suffixText: suffix,
       ),
-      validator: validator ??
+      validator:
+          validator ??
           (required
               ? (value) => (value == null || value.trim().isEmpty)
-                  ? 'Campo obligatorio'
-                  : null
+                    ? 'Campo obligatorio'
+                    : null
               : null),
     );
   }
@@ -356,9 +411,22 @@ class _VariantSpecs extends StatelessWidget {
               _spec(Icons.power, 'AC ${fmt(variant.maxAcKw)} kW'),
             ],
           ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final id in variant.connectors)
+                Chip(
+                  avatar: const Icon(Icons.power, size: 16),
+                  label: Text(vehicleConnectorById(id)?.name ?? id),
+                  visualDensity: VisualDensity.compact,
+                ),
+            ],
+          ),
           const SizedBox(height: 8),
           const Text(
-            'Datos de referencia del fabricante.',
+            'Datos de referencia del fabricante. Los conectores son los de esta versión.',
             style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
           ),
         ],
