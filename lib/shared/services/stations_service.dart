@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../features/charging_stations/data/repositories/charging_stations_repository.dart';
 import '../../features/charging_stations/domain/models/charging_station.dart';
+import 'community_service.dart';
 import 'location_service.dart';
 import 'proximity_notification_service.dart';
 
@@ -10,15 +11,20 @@ import 'proximity_notification_service.dart';
 class StationsService extends ChangeNotifier {
   static final StationsService _instance = StationsService._internal();
   factory StationsService() => _instance;
-  StationsService._internal();
+  StationsService._internal() {
+    _community.addListener(_applyCommunity);
+  }
 
   /// Radio de búsqueda usado por toda la app.
   static const double searchRadiusKm = 30;
 
   final ChargingStationsRepository _repository = ChargingStationsRepository();
   final LocationService _locationService = LocationService();
+  final CommunityService _community = CommunityService();
 
-  // Lista de estaciones cargadas
+  // Estaciones tal como llegan de las fuentes, y con los reportes de la
+  // comunidad aplicados (las que ve la app)
+  List<ChargingStation> _sourceStations = [];
   List<ChargingStation> _stations = [];
   bool _isLoading = false;
   Object? _lastError;
@@ -55,7 +61,7 @@ class StationsService extends ChangeNotifier {
       return _inflight!.then((stations) {
         if (lat == _locationService.latitude &&
             lng == _locationService.longitude &&
-            identical(stations, _stations)) {
+            identical(stations, _sourceStations)) {
           final updated = _repository.recalculateDistancesFrom(
             stations: stations,
             latitude: lat,
@@ -86,6 +92,7 @@ class StationsService extends ChangeNotifier {
   ) async {
     if (forceRefresh) _repository.clearCache();
     setLoading(true);
+    _community.loadArea(lat, lng, searchRadiusKm, force: forceRefresh);
     try {
       // Cada emisión (cache, luego cada fuente que responde) se publica de
       // inmediato para que el mapa pinte marcadores sin esperar a todas.
@@ -111,18 +118,29 @@ class StationsService extends ChangeNotifier {
 
   /// Actualiza la lista de estaciones
   void setStations(List<ChargingStation> stations) {
-    _stations = stations;
-    ProximityNotificationService().updateStations(stations);
+    _sourceStations = stations;
+    _applyCommunity();
+  }
+
+  void _applyCommunity() {
+    _stations = _sourceStations.map(_community.apply).toList();
+    ProximityNotificationService().updateStations(_stations);
     notifyListeners();
   }
+
+  /// Estación cargada tal como llegó de las fuentes (sin los datos de la
+  /// comunidad).
+  ChargingStation? sourceStationById(String id) =>
+      _sourceStations.where((s) => s.id == id).firstOrNull;
 
   /// Reemplaza una estación ya cargada (ej. tras completar sus datos en el
   /// detalle) para que el mapa y el listado muestren la versión nueva.
   void replaceStation(ChargingStation station) {
-    final index = _stations.indexWhere((s) => s.id == station.id);
+    final index = _sourceStations.indexWhere((s) => s.id == station.id);
     if (index == -1) return;
-    setStations(List.of(_stations)
-      ..[index] = station.copyWith(distanceKm: _stations[index].distanceKm));
+    setStations(List.of(_sourceStations)
+      ..[index] =
+          station.copyWith(distanceKm: _sourceStations[index].distanceKm));
   }
 
   /// Establece el estado de carga
@@ -133,6 +151,7 @@ class StationsService extends ChangeNotifier {
 
   /// Limpia las estaciones
   void clearStations() {
+    _sourceStations = [];
     _stations = [];
     notifyListeners();
   }

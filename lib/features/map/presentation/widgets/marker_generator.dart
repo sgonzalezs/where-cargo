@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../charging_stations/domain/models/charging_station.dart';
+import '../../../community/domain/models/community_station.dart';
 import '../../../../core/theme/app_colors.dart';
 
 /// Generador de marcadores personalizados para Google Maps
@@ -22,10 +23,11 @@ class MarkerGenerator {
     required bool isAvailable,
     bool isCompatibleWithVehicle = false,
     bool hasCompleteData = true,
+    CommunityState communityState = CommunityState.none,
   }) async {
     // Crear key para cache
     final cacheKey =
-        'marker_${powerKw}_${availableConnectors}_${totalConnectors}_${isAvailable}_${isCompatibleWithVehicle}_$hasCompleteData';
+        'marker_${powerKw}_${availableConnectors}_${totalConnectors}_${isAvailable}_${isCompatibleWithVehicle}_${hasCompleteData}_${communityState.name}';
     
     // Retornar de cache si existe
     if (_cache.containsKey(cacheKey)) {
@@ -40,6 +42,7 @@ class MarkerGenerator {
       isAvailable: isAvailable,
       isCompatibleWithVehicle: isCompatibleWithVehicle,
       hasCompleteData: hasCompleteData,
+      communityState: communityState,
     );
     
     // Guardar en cache
@@ -51,9 +54,12 @@ class MarkerGenerator {
   /// Genera un marcador para una estación de carga.
   /// Si se pasan [vehicleConnectors] (apiValues del vehículo del usuario),
   /// se marca la estación con estrella dorada cuando es compatible.
+  /// [communityState] agrega la insignia del estado reportado por la
+  /// comunidad (✓ funciona, ! parcial o mixto, ✕ sin servicio).
   static Future<BitmapDescriptor> generateStationMarker(
     ChargingStation station, {
     List<String>? vehicleConnectors,
+    CommunityState communityState = CommunityState.none,
   }) async {
     bool compatible = false;
     if (vehicleConnectors != null && vehicleConnectors.isNotEmpty) {
@@ -68,6 +74,7 @@ class MarkerGenerator {
       isAvailable: station.hasAvailableConnectors,
       isCompatibleWithVehicle: compatible,
       hasCompleteData: station.hasCompleteData,
+      communityState: communityState,
     );
   }
 
@@ -207,6 +214,7 @@ class MarkerGenerator {
     required bool isAvailable,
     bool isCompatibleWithVehicle = false,
     bool hasCompleteData = true,
+    CommunityState communityState = CommunityState.none,
   }) async {
     // Dibujamos a alta resolución para mantener nitidez
     const double scale = 2.5;
@@ -336,6 +344,12 @@ class MarkerGenerator {
       );
     }
 
+    // Estado reportado por la comunidad: insignia en la esquina superior
+    // izquierda
+    if (communityState != CommunityState.none) {
+      _drawCommunityBadge(canvas, communityState, 9.5 * scale, scale);
+    }
+
     // Convertir a imagen
     final picture = recorder.endRecording();
     final image = await picture.toImage(width.toInt(), height.toInt());
@@ -354,6 +368,49 @@ class MarkerGenerator {
       width: 72,
       height: 40,
     );
+  }
+
+  static void _drawCommunityBadge(
+    Canvas canvas,
+    CommunityState state,
+    double radius,
+    double scale,
+  ) {
+    final center = Offset(radius, radius);
+    final color = switch (state) {
+      CommunityState.working => const Color(0xFF2E7D32),
+      CommunityState.notWorking => const Color(0xFFD32F2F),
+      _ => const Color(0xFFF9A825),
+    };
+    canvas.drawCircle(center, radius, Paint()..color = Colors.white);
+    canvas.drawCircle(center, radius - 2 * scale, Paint()..color = color);
+
+    final stroke = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2 * scale
+      ..strokeCap = StrokeCap.round;
+    final r = (radius - 2 * scale) * 0.45;
+    switch (state) {
+      case CommunityState.working:
+        canvas.drawPath(
+          Path()
+            ..moveTo(center.dx - r, center.dy)
+            ..lineTo(center.dx - r * 0.25, center.dy + r * 0.7)
+            ..lineTo(center.dx + r, center.dy - r * 0.6),
+          stroke,
+        );
+      case CommunityState.notWorking:
+        canvas.drawLine(center.translate(-r * 0.8, -r * 0.8),
+            center.translate(r * 0.8, r * 0.8), stroke);
+        canvas.drawLine(center.translate(r * 0.8, -r * 0.8),
+            center.translate(-r * 0.8, r * 0.8), stroke);
+      default:
+        canvas.drawLine(center.translate(0, -r), center.translate(0, r * 0.3),
+            stroke);
+        canvas.drawCircle(center.translate(0, r * 0.95), 1.2 * scale,
+            Paint()..color = Colors.white);
+    }
   }
 
   /// Dibuja una estrella de 5 puntas centrada en (cx, cy)

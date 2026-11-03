@@ -36,17 +36,117 @@ service cloud.firestore {
         );
     }
 
+    // Límite de reportes por día: report_window_start marca el inicio de la
+    // ventana de 24 h y report_window_count los reportes hechos en ella.
+    // Solo puede quedar igual, abrir una ventana nueva (si la anterior
+    // venció) o sumar 1 hasta el máximo.
+    function isValidReportWindow() {
+      let d = request.resource.data;
+      let before = resource == null ? {} : resource.data;
+      let start = before.get('report_window_start', null);
+      let count = before.get('report_window_count', 0);
+      return (d.get('report_window_start', null) == start
+          && d.get('report_window_count', 0) == count)
+        || (d.report_window_start == request.time
+          && d.report_window_count == 1
+          && (start == null || request.time > start + duration.value(1, 'd')))
+        || (start != null
+          && d.report_window_start == start
+          && d.report_window_count == count + 1
+          && d.report_window_count <= 20
+          && request.time < start + duration.value(1, 'd'));
+    }
+
     match /users/{uid} {
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid)
         && request.resource.data.keys().hasOnly([
           'display_name', 'email', 'photo_url', 'platform',
-          'created_at', 'last_login_at', 'stats_consent'
-        ]);
+          'created_at', 'last_login_at', 'stats_consent',
+          'report_window_start', 'report_window_count'
+        ])
+        && isValidReportWindow();
 
       match /vehicles/{vehicleId} {
         allow read, delete: if isOwner(uid);
         allow create, update: if isOwner(uid) && isValidVehicle(uid, vehicleId);
+      }
+    }
+
+    // Reportes de la comunidad. El resumen público se escribe en la misma
+    // transacción que el reporte (last_report_id) y el reporte exige haber
+    // actualizado los límites del usuario (30 min por estación, 20 al día).
+    match /community_stations/{stationId} {
+      allow read: if true;
+      allow create, update: if request.auth != null && isValidCommunityStation();
+
+      function isValidCommunityStation() {
+        let d = request.resource.data;
+        let report = getAfter(/databases/$(database)/documents/community_stations/$(stationId)/reports/$(d.last_report_id));
+        return d.keys().hasOnly([
+            'source_ids', 'lat', 'lng', 'geohash', 'name', 'recent',
+            'connectors', 'tags', 'free_votes', 'paid_votes', 'price_kwh',
+            'report_count', 'last_report_id', 'updated_at'
+          ])
+          && d.source_ids is list && d.source_ids.size() >= 1 && d.source_ids.size() <= 10
+          && d.lat is number && d.lng is number
+          && d.geohash is string && d.geohash.size() == 7
+          && d.recent is list && d.recent.size() >= 1 && d.recent.size() <= 10
+          && d.recent[0].at > request.time - duration.value(10, 'm')
+          && d.recent[0].at < request.time + duration.value(10, 'm')
+          && d.connectors is map && d.connectors.size() <= 30
+          && d.tags is map && d.tags.size() <= 10
+          && d.free_votes is int && d.paid_votes is int
+          && (d.price_kwh == null || (d.price_kwh is number && d.price_kwh > 0 && d.price_kwh < 10000))
+          && d.updated_at == request.time
+          && d.last_report_id is string
+          && report.data.created_at == request.time
+          && report.data.user_id == request.auth.uid
+          && (resource == null
+            ? d.report_count == 1
+            : d.report_count == resource.data.report_count + 1
+              && d.lat == resource.data.lat && d.lng == resource.data.lng);
+      }
+
+      // Los reportes guardan quién los hizo: no se pueden leer desde la app
+      match /reports/{reportId} {
+        allow create: if request.auth != null && isValidReport();
+
+        function isValidReport() {
+          let d = request.resource.data;
+          let uid = request.auth.uid;
+          let contributor = /databases/$(database)/documents/community_stations/$(stationId)/contributors/$(uid);
+          let user = /databases/$(database)/documents/users/$(uid);
+          let windowAfter = getAfter(user).data;
+          return d.keys().hasOnly([
+              'user_id', 'status', 'connectors', 'tags', 'is_free',
+              'price_kwh', 'vehicle_model_id', 'created_at'
+            ])
+            && d.user_id == uid
+            && d.created_at == request.time
+            && d.status in ['working', 'partial', 'not_working']
+            && d.connectors is list && d.connectors.size() <= 8
+            && d.tags is list && d.tags.size() <= 5
+            && (d.is_free == null || d.is_free is bool)
+            && (d.price_kwh == null || (d.price_kwh is number && d.price_kwh > 0 && d.price_kwh < 10000))
+            && (d.vehicle_model_id == null || d.vehicle_model_id is string)
+            // Límite por estación (las reglas del contribuidor validan los 30 min)
+            && getAfter(contributor).data.last_report_at == request.time
+            // Límite diario: la ventana del usuario cambió en esta escritura
+            && (windowAfter.get('report_window_start', null) == request.time
+              || (exists(user)
+                && windowAfter.get('report_window_count', 0)
+                  == get(user).data.get('report_window_count', 0) + 1));
+        }
+      }
+
+      match /contributors/{uid} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['last_report_at'])
+          && request.resource.data.last_report_at == request.time
+          && (resource == null
+            || request.time > resource.data.last_report_at + duration.value(30, 'm'));
       }
     }
 

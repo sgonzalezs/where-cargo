@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../charging_stations/domain/models/charging_station.dart';
+import '../../../community/domain/models/community_station.dart';
 import '../../../filters/domain/models/station_filters.dart';
 import '../../../filters/presentation/widgets/filter_sheet.dart';
 import '../../../charging_stations/data/repositories/charging_stations_repository.dart';
@@ -20,6 +21,7 @@ import '../../../../shared/services/connectivity_service.dart';
 import '../../../../shared/services/proximity_notification_service.dart';
 import '../../../../shared/services/address_resolver_service.dart';
 import '../../../../shared/services/stations_service.dart';
+import '../../../../shared/services/community_service.dart';
 import '../widgets/marker_generator.dart';
 
 /// Página del mapa con estaciones de carga
@@ -463,14 +465,22 @@ class _MapPageState extends State<MapPage> {
   ) async {
     final markers = <Marker>{};
     final vehicleConnectors = _vehicleService.primaryVehicle?.compatibleConnectors;
+    final community = CommunityService();
+    final now = DateTime.now();
+    final communityStates = [
+      for (final station in stations)
+        community.forStation(station)?.stateAt(now) ?? CommunityState.none,
+    ];
 
     // Generar íconos en paralelo (muchos comparten estilo y salen del cache)
-    final icons = await Future.wait(stations.map(
-      (station) => MarkerGenerator.generateStationMarker(
-        station,
-        vehicleConnectors: vehicleConnectors,
-      ),
-    ));
+    final icons = await Future.wait([
+      for (var i = 0; i < stations.length; i++)
+        MarkerGenerator.generateStationMarker(
+          stations[i],
+          vehicleConnectors: vehicleConnectors,
+          communityState: communityStates[i],
+        ),
+    ]);
 
     for (var i = 0; i < stations.length; i++) {
       final station = stations[i];
@@ -484,9 +494,11 @@ class _MapPageState extends State<MapPage> {
           anchor: const Offset(0.5, 1.0),
           infoWindow: InfoWindow(
             title: station.name,
-            snippet: station.hasCompleteData
-                ? '${station.availabilityText} • ${station.maxPowerKw.toInt()} kW'
-                : 'Datos limitados',
+            snippet: communityStates[i] == CommunityState.notWorking
+                ? 'Reportada sin servicio'
+                : station.hasCompleteData
+                    ? '${station.availabilityText} • ${station.maxPowerKw.toInt()} kW'
+                    : 'Datos limitados',
           ),
           onTap: () => _selectStation(station),
         ),

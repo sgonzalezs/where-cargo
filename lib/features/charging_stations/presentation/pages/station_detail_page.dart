@@ -6,8 +6,12 @@ import '../../domain/enums/charging_enums.dart';
 import '../../domain/models/charging_station.dart';
 import '../../data/repositories/charging_stations_repository.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/auth_service.dart';
+import '../../../../shared/services/community_service.dart';
 import '../../../../shared/services/favorites_service.dart';
 import '../../../../shared/services/stations_service.dart';
+import '../../../community/presentation/widgets/community_report_sheet.dart';
+import '../../../community/presentation/widgets/community_section.dart';
 import '../../../navigation_apps/presentation/widgets/navigation_options_sheet.dart';
 
 /// Página de detalle de una estación de carga
@@ -25,11 +29,14 @@ class StationDetailPage extends StatefulWidget {
 
 class _StationDetailPageState extends State<StationDetailPage> {
   final FavoritesService _favoritesService = FavoritesService();
+  final CommunityService _community = CommunityService();
   // Instancia compartida: reutiliza el cache cargado por el Mapa
   final ChargingStationsRepository _repository = ChargingStationsRepository();
 
+  /// Estación sin los datos de la comunidad (se aplican en [station]).
   late ChargingStation _station;
   bool _isRefreshing = false;
+  bool _preparingReport = false;
   // Ya se consultaron las fuentes para completar la estación
   bool _lookupDone = false;
   DateTime? _lastRefreshed;
@@ -40,8 +47,12 @@ class _StationDetailPageState extends State<StationDetailPage> {
   @override
   void initState() {
     super.initState();
-    _station = widget.station;
+    _station =
+        StationsService().sourceStationById(widget.station.id) ?? widget.station;
     _favoritesService.addListener(_onFavoritesChanged);
+    _community.addListener(_onFavoritesChanged);
+    // Por si se abrió desde favoritos sin pasar por el mapa
+    _community.loadArea(_station.latitude, _station.longitude, 1);
     _favoritesService.loadFavorites();
     _enrichStation();
     _resolveAddress();
@@ -50,6 +61,7 @@ class _StationDetailPageState extends State<StationDetailPage> {
   @override
   void dispose() {
     _favoritesService.removeListener(_onFavoritesChanged);
+    _community.removeListener(_onFavoritesChanged);
     super.dispose();
   }
 
@@ -139,7 +151,107 @@ class _StationDetailPageState extends State<StationDetailPage> {
     }
   }
 
-  ChargingStation get station => _station;
+  /// Estación mostrada, con lo reportado por la comunidad.
+  ChargingStation get station => _community.apply(_station);
+
+  /// Reportar requiere sesión y estar en la estación.
+  Future<void> _startReport() async {
+    if (!AuthService().isSignedIn && !await _askSignIn()) return;
+    if (!mounted) return;
+
+    setState(() => _preparingReport = true);
+    final meters = await _community.distanceToStation(_station);
+    if (!mounted) return;
+    setState(() => _preparingReport = false);
+
+    final messenger = ScaffoldMessenger.of(context);
+    if (meters == null) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text(
+          'Activa la ubicación para reportar: así confirmamos que estás en la estación.',
+        ),
+      ));
+      return;
+    }
+    if (meters > CommunityService.maxReportDistanceMeters) {
+      final distance = meters >= 1000
+          ? '${(meters / 1000).toStringAsFixed(1)} km'
+          : '${meters.round()} m';
+      messenger.showSnackBar(SnackBar(
+        content: Text(
+          'Para reportar debes estar en la estación (a menos de 500 m). Estás a $distance.',
+        ),
+      ));
+      return;
+    }
+
+    final sent = await CommunityReportSheet.show(context, station);
+    if (sent) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('¡Gracias! Tu reporte ayuda a otros conductores.'),
+      ));
+    }
+  }
+
+  /// Devuelve true si el usuario inició sesión.
+  Future<bool> _askSignIn() async {
+    final signedIn = await showModalBottomSheet<bool>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.groups_outlined,
+                size: 48, color: AppColors.primary),
+            const SizedBox(height: 12),
+            Text(
+              'Inicia sesión para reportar',
+              style: Theme.of(sheetContext).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Así tu reporte ayuda a otros conductores y evitamos reportes falsos. Los demás no verán tu nombre.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.login),
+                label: const Text('Continuar con Google'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: () async {
+                  try {
+                    final ok = await AuthService().signInWithGoogle();
+                    if (sheetContext.mounted) Navigator.pop(sheetContext, ok);
+                  } on AuthException catch (e) {
+                    if (!sheetContext.mounted) return;
+                    ScaffoldMessenger.of(sheetContext).showSnackBar(
+                      SnackBar(content: Text(e.message)),
+                    );
+                  }
+                },
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(sheetContext, false),
+              child: const Text('Ahora no'),
+            ),
+          ],
+        ),
+      ),
+    );
+    return signedIn ?? false;
+  }
 
   void _toggleFavorite() async {
     final wasAdded = await _favoritesService.toggleFavorite(_station);
@@ -169,6 +281,12 @@ class _StationDetailPageState extends State<StationDetailPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildHeader(context),
+                const Divider(),
+                CommunitySection(
+                  community: _community.forStation(_station),
+                  onReport: _startReport,
+                  isPreparingReport: _preparingReport,
+                ),
                 const Divider(),
                 _buildConnectorsSection(context),
                 const Divider(),
