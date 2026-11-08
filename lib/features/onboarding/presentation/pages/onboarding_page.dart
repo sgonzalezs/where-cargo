@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/analytics_service.dart';
 import '../../../../shared/services/onboarding_service.dart';
 import '../../../../shared/services/vehicle_service.dart';
 import '../../../../shared/services/vehicle_catalog_service.dart';
@@ -22,6 +23,12 @@ class _OnboardingPageState extends State<OnboardingPage> {
 
   int _currentPage = 0;
   final int _totalPages = 3;
+
+  @override
+  void initState() {
+    super.initState();
+    AnalyticsService().logScreen('onboarding');
+  }
 
   @override
   void dispose() {

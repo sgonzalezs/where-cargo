@@ -6,6 +6,7 @@ import '../../domain/enums/charging_enums.dart';
 import '../../domain/models/charging_station.dart';
 import '../../data/repositories/charging_stations_repository.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/analytics_service.dart';
 import '../../../../shared/services/auth_service.dart';
 import '../../../../shared/services/community_service.dart';
 import '../../../../shared/services/favorites_service.dart';
@@ -56,6 +57,9 @@ class _StationDetailPageState extends State<StationDetailPage> {
     _favoritesService.loadFavorites();
     _enrichStation();
     _resolveAddress();
+    AnalyticsService()
+      ..logScreen('station_detail')
+      ..logStationView(_station);
   }
 
   @override

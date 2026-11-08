@@ -6,6 +6,7 @@ import 'core/theme/app_theme.dart';
 import 'core/constants/app_constants.dart';
 import 'firebase_options.dart';
 import 'navigation/app_router.dart';
+import 'shared/services/analytics_service.dart';
 import 'shared/services/auth_service.dart';
 import 'shared/services/notification_service.dart';
 import 'shared/services/vehicle_catalog_service.dart';
@@ -15,6 +16,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await AnalyticsService().initialize();
   await AuthService().initialize();
 
   // Catálogo de vehículos: si en Firestore hay una versión más nueva se

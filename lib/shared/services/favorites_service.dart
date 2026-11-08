@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/charging_stations/domain/models/charging_station.dart';
 import '../../features/favorites/domain/models/favorite_station.dart';
+import 'analytics_service.dart';
 
 /// Servicio singleton para gestionar estaciones favoritas
 /// Persiste los datos localmente usando SharedPreferences
@@ -119,9 +120,11 @@ class FavoritesService extends ChangeNotifier {
   Future<bool> toggleFavorite(ChargingStation station) async {
     if (isFavorite(station.id)) {
       await removeFavorite(station.id);
+      AnalyticsService().logFavorite(station, added: false);
       return false; // Ya no es favorito
     } else {
       await addFavorite(station);
+      AnalyticsService().logFavorite(station, added: true);
       return true; // Ahora es favorito
     }
   }

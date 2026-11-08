@@ -6,6 +6,7 @@ import '../features/favorites/presentation/pages/favorites_page.dart';
 import '../features/vehicle_sync/presentation/pages/vehicle_status_page.dart';
 import '../features/onboarding/presentation/pages/onboarding_page.dart';
 import '../features/auth/presentation/pages/login_page.dart';
+import '../shared/services/analytics_service.dart';
 import '../shared/services/auth_service.dart';
 import '../shared/services/onboarding_service.dart';
 import '../shared/services/vehicle_service.dart';
@@ -82,6 +83,20 @@ class MainNavigationPage extends StatefulWidget {
 class _MainNavigationPageState extends State<MainNavigationPage> {
   int _currentIndex = 0;
 
+  /// Nombre de cada pestaña en Analytics, en el orden de [_pages].
+  static const List<String> _screenNames = [
+    'map',
+    'stations',
+    'favorites',
+    'vehicle',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    AnalyticsService().logScreen(_screenNames[_currentIndex]);
+  }
+
   final List<Widget> _pages = const [
     MapPage(),           // Mapa como pantalla principal
     StationsListPage(),  // Lista de estaciones
@@ -122,6 +137,9 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
+          if (index != _currentIndex) {
+            AnalyticsService().logScreen(_screenNames[index]);
+          }
           setState(() {
             _currentIndex = index;
           });

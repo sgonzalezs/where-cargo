@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     
     <!-- Permisos de ubicación para Google Maps y Geolocator -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -8,6 +9,18 @@
     <!-- Permisos para notificaciones locales (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Firebase Analytics no debe usar el ID de publicidad: la app no
+         muestra anuncios (Play Console declara que no lo usa) -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_AD_ID"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.ACCESS_ADSERVICES_ATTRIBUTION"
+        tools:node="remove" />
     
     <application
         android:label="WhereCargo"
@@ -39,6 +52,14 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${googleMapsApiKey}"/>
+
+        <!-- Firebase Analytics: sin ID de publicidad ni señales de anuncios -->
+        <meta-data
+            android:name="google_analytics_adid_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="google_analytics_default_allow_ad_personalization_signals"
+            android:value="false" />
         
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

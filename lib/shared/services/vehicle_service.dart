@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../features/vehicle_sync/domain/models/vehicle.dart';
 import '../../features/vehicle_sync/domain/models/vehicle_catalog.dart';
+import 'analytics_service.dart';
 import 'user_data_repository.dart';
 import 'vehicle_catalog_service.dart';
 
@@ -98,6 +99,7 @@ class VehicleService extends ChangeNotifier {
 
     _vehicles.add(vehicleToAdd);
     notifyListeners();
+    AnalyticsService().logVehicleAdded(vehicleToAdd);
 
     await _saveVehicles();
     return true;

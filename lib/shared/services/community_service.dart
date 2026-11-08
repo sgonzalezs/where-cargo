@@ -10,6 +10,7 @@ import '../../features/charging_stations/domain/models/charging_station.dart';
 import '../../features/charging_stations/domain/models/connector.dart';
 import '../../features/community/data/geohash.dart';
 import '../../features/community/domain/models/community_station.dart';
+import 'analytics_service.dart';
 
 /// Reportes de la comunidad sobre las estaciones.
 ///
@@ -304,6 +305,7 @@ class CommunityService extends ChangeNotifier {
     }
     _stations[updated.id] = updated;
     notifyListeners();
+    AnalyticsService().logCommunityReport(report.status.apiValue);
   }
 
   // ---------------------------------------------------------------------------

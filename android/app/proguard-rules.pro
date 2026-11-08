@@ -19,3 +19,24 @@
 -dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
 -dontwarn com.google.android.play.core.splitinstall.**
 -dontwarn com.google.android.play.core.tasks.**
+
+# flutter_local_notifications guarda las notificaciones programadas con Gson:
+# sus modelos y los tipos genéricos deben conservarse.
+-keep class com.dexterous.** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*
+-keepattributes EnclosingMethod,InnerClasses
+-dontwarn sun.misc.**
+-keep class com.google.gson.reflect.TypeToken { *; }
+-keep class * extends com.google.gson.reflect.TypeToken
+-keep class * extends com.google.gson.TypeAdapter
+-keep class * implements com.google.gson.TypeAdapterFactory
+-keep class * implements com.google.gson.JsonSerializer
+-keep class * implements com.google.gson.JsonDeserializer
+-keepclassmembers,allowobfuscation class * {
+  @com.google.gson.annotations.SerializedName <fields>;
+}
+
+# Crashlytics: líneas legibles en los reportes de fallos
+-keepattributes SourceFile,LineNumberTable
+-keep public class * extends java.lang.Exception

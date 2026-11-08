@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'analytics_service.dart';
 import 'user_data_repository.dart';
 import 'vehicle_service.dart';
 
@@ -41,12 +42,14 @@ class AuthService extends ChangeNotifier {
     }
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen((u) {
       VehicleService().attachUser(u?.uid);
+      AnalyticsService().setSignedIn(u != null);
       notifyListeners();
     });
   }
 
   Future<void> dismissLoginPrompt() async {
     _loginPromptDismissed = true;
+    AnalyticsService().logLoginSkipped();
     notifyListeners();
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -76,6 +79,7 @@ class AuthService extends ChangeNotifier {
         } catch (e) {
           debugPrint('[WhereCargo] Error guardando perfil: $e');
         }
+        AnalyticsService().logLogin();
       }
       return true;
     } on GoogleSignInException catch (e) {
@@ -115,6 +119,7 @@ class AuthService extends ChangeNotifier {
       );
       await _repository.deleteUserData(current.uid);
       await current.delete();
+      AnalyticsService().logAccountDeleted();
     } on GoogleSignInException catch (e) {
       if (e.code == GoogleSignInExceptionCode.canceled ||
           e.code == GoogleSignInExceptionCode.interrupted) {

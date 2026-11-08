@@ -1,6 +1,8 @@
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../../shared/services/analytics_service.dart';
+
 /// Servicio para integración con apps de navegación
 class NavigationService {
   /// Abre Google Maps con la ruta hacia las coordenadas especificadas
@@ -22,7 +24,7 @@ class NavigationService {
           '&destination=$destinationLat,$destinationLng';
     }
     
-    return _launchUrl(url);
+    return _launchTracked(url, 'google_maps');
   }
 
   /// Abre Waze con la ruta hacia las coordenadas especificadas
@@ -32,12 +34,12 @@ class NavigationService {
   }) async {
     // Try native Waze app first; fallback to web URL if not available.
     final appUrl = 'waze://?ll=$destinationLat,$destinationLng&navigate=yes';
-    if (await _launchUrl(appUrl)) {
+    if (await _launchTracked(appUrl, 'waze')) {
       return true;
     }
 
     final webUrl = 'https://www.waze.com/ul?ll=$destinationLat,$destinationLng&navigate=yes';
-    return _launchUrl(webUrl);
+    return _launchTracked(webUrl, 'waze');
   }
 
   /// Abre Apple Maps (solo iOS)
@@ -50,7 +52,7 @@ class NavigationService {
         ? '&q=${Uri.encodeComponent(destinationName)}'
         : '';
     final url = 'https://maps.apple.com/?daddr=$destinationLat,$destinationLng$query';
-    return _launchUrl(url);
+    return _launchTracked(url, 'apple_maps');
   }
 
   /// Genera opciones de navegación disponibles
@@ -126,6 +128,13 @@ class NavigationService {
   }) {
     final encodedName = name != null ? Uri.encodeComponent(name) : '';
     return 'https://www.google.com/maps/search/?api=1&query=$lat,$lng${name != null ? "&query_place_id=$encodedName" : ""}';
+  }
+
+  /// Abre [url] y, si se abrió, registra la navegación con [app].
+  Future<bool> _launchTracked(String url, String app) async {
+    final opened = await _launchUrl(url);
+    if (opened) AnalyticsService().logNavigationStart(app);
+    return opened;
   }
 
   Future<bool> _launchUrl(String url) async {

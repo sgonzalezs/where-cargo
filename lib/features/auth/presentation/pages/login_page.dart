@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../../../../shared/services/analytics_service.dart';
 import '../../../../shared/services/auth_service.dart';
 
 /// Pantalla de inicio de sesión (opcional) que se muestra al abrir la app.
@@ -22,6 +23,12 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final AuthService _authService = AuthService();
   bool _isSigningIn = false;
+
+  @override
+  void initState() {
+    super.initState();
+    AnalyticsService().logScreen('login');
+  }
 
   void _finish() {
     if (widget.onFinished != null) {
